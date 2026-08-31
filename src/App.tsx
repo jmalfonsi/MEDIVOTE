@@ -11,6 +11,7 @@ import {
 } from './types';
 import { api, auth, SessionExpiree } from './services/api';
 import { calculateVoteStatistics } from './utils/votingMath';
+import { prechargerLogo } from './utils/pdfExport';
 import { Navbar } from './components/Navbar';
 import { OvalTable } from './components/OvalTable';
 import { AdminPanel } from './components/AdminPanel';
@@ -116,6 +117,10 @@ export default function App() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Le logo est chargé dès l'ouverture pour que le procès-verbal puisse le porter
+  // sans attendre, y compris lors d'une édition immédiate après la clôture.
+  useEffect(() => { void prechargerLogo(); }, []);
 
   // Une session peut déjà être ouverte sur ce poste (rechargement de page en séance).
   useEffect(() => {
@@ -464,20 +469,13 @@ export default function App() {
   };
 
   // Écran de garde : sans session administrateur ouverte côté serveur, rien ne s'affiche.
+  // La fenêtre de saisie occupe tout l'écran, il n'y a donc rien à peindre derrière.
   if (!sessionOuverte) {
     return (
-      <div className="min-h-screen bg-[#F4F7F5] flex flex-col items-center justify-center gap-6 p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 mx-auto">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <h2 className="text-base font-bold text-slate-900 mt-3">MediVote — accès protégé</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-xs">
-            Cette séance est verrouillée. Saisissez le code administrateur pour ouvrir la table de vote.
-          </p>
-        </div>
+      <div className="min-h-screen bg-[#F4F7F5]">
         <AdminPinModal
           isOpen={true}
+          fermable={false}
           onClose={() => {}}
           onSuccess={() => {
             setSessionOuverte(true);
@@ -492,12 +490,17 @@ export default function App() {
   if (loading && !session) {
     return (
       <div className="min-h-screen bg-[#F4F7F5] flex flex-col items-center justify-center text-slate-600 gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 animate-spin shadow-xs">
-          <RefreshCw className="w-6 h-6" />
-        </div>
+        <img
+          src="/logo-ssti03.png"
+          alt="SSTI 03 — Allier Prévention Santé Entreprises"
+          className="w-16 h-16 object-contain"
+        />
         <div className="text-center">
-          <h2 className="text-base font-bold text-slate-900">Initialisation de Medivote Pro</h2>
-          <p className="text-xs text-slate-500 mt-1 font-mono">Connexion à la base SQLite locale...</p>
+          <h2 className="text-base font-bold text-slate-900">Ouverture de la séance</h2>
+          <p className="text-xs text-slate-500 mt-1 inline-flex items-center gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            Chargement du registre de vote…
+          </p>
         </div>
       </div>
     );

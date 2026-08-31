@@ -68,9 +68,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Medical Brand & Active Meeting Switcher */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-xs shadow-xs">
-              M
-            </div>
+            <img
+              src="/logo-ssti03.png"
+              alt="SSTI 03 — Allier Prévention Santé Entreprises"
+              className="h-9 w-auto object-contain"
+            />
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-sm tracking-tight text-slate-900 leading-none">

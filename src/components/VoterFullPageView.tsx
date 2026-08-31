@@ -133,9 +133,11 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
           
           {/* Logo & Meeting Reference */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-700/20">
-              M
-            </div>
+            <img
+              src="/logo-ssti03.png"
+              alt="SSTI 03 — Allier Prévention Santé Entreprises"
+              className="w-9 h-9 rounded-xl object-contain bg-white shadow-md shadow-slate-400/20"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs sm:text-sm text-slate-900">Medivote Pro</span>

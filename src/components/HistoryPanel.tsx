@@ -84,10 +84,16 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
       outcome: item.outcome as any,
       createdAt: item.closedAt,
       voterStates: dummyStates,
-      selectedAttendeeIds: sessionVoters.map(v => v.id)
+      // Le collège convoqué ce jour-là, et non l'annuaire entier : le procès-verbal
+      // ne doit faire figurer que les membres appelés à siéger.
+      selectedAttendeeIds:
+        item.detailedSnapshot?.session?.selectedAttendeeIds?.length
+          ? item.detailedSnapshot.session.selectedAttendeeIds
+          : sessionVoters.map(v => v.id)
     };
 
-    generateSessionPdfReport(sessionObj, sessionVoters);
+    // Le décompte arrêté par le serveur à la clôture fait foi ; on ne le recalcule pas.
+    generateSessionPdfReport(sessionObj, sessionVoters, item.detailedSnapshot?.stats);
   };
 
   const handleExportCSV = () => {

@@ -136,6 +136,8 @@ export interface SessionHistoryItem {
     session: VotingSession;
     voters: Voter[];
     voterStates: VoterSessionState[];
+    /** Décompte arrêté par le serveur à la clôture : c'est lui qui fait foi au PV. */
+    stats?: VoteStatistics;
   };
 }
 

@@ -6,12 +6,15 @@ interface AdminPinModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /** false sur l'écran d'accueil : il n'y a rien derrière, la fermeture n'aurait pas de sens. */
+  fermable?: boolean;
 }
 
 export const AdminPinModal: React.FC<AdminPinModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  fermable = true,
 }) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -60,21 +63,29 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden p-6 space-y-5 text-center relative">
         
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {fermable && (
+          <button
+            onClick={onClose}
+            aria-label="Fermer"
+            className="absolute top-4 right-4 p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
 
-        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 mx-auto">
-          <KeyRound className="w-6 h-6" />
-        </div>
+        <img
+          src="/logo-ssti03.png"
+          alt="SSTI 03 — Allier Prévention Santé Entreprises"
+          className="w-24 h-24 object-contain mx-auto"
+        />
 
         <div>
-          <h3 className="text-base font-bold text-slate-900">Accès Administrateur</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Entrez le code administrateur pour basculer vers la Table Ovale et les paramètres.
+          <h3 className="text-base font-bold text-slate-900">Accès administrateur</h3>
+          <p className="text-[11px] font-semibold text-emerald-700 mt-0.5 uppercase tracking-wide">
+            Conseil d'Administration · SSTI 03
+          </p>
+          <p className="text-xs text-slate-500 mt-1.5">
+            Entrez le code administrateur pour ouvrir la table de vote.
           </p>
         </div>
 

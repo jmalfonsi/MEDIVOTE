@@ -3,6 +3,30 @@ import autoTable from 'jspdf-autotable';
 import { VotingSession, Voter, VoteStatistics } from '../types';
 import { getMajorityLabel, calculateVoteStatistics } from './votingMath';
 
+/**
+ * Le logo de l'organisme est chargé une fois puis conservé : le procès-verbal est
+ * un document officiel, il doit porter l'identité du SSTI 03. Si le chargement
+ * échoue, le PV est produit sans logo plutôt que pas produit du tout.
+ */
+let logoDataUrl: string | null = null;
+
+export async function prechargerLogo(): Promise<void> {
+  if (logoDataUrl) return;
+  try {
+    const reponse = await fetch('/logo-ssti03.png');
+    if (!reponse.ok) return;
+    const blob = await reponse.blob();
+    logoDataUrl = await new Promise<string>((resoudre, rejeter) => {
+      const lecteur = new FileReader();
+      lecteur.onloadend = () => resoudre(String(lecteur.result));
+      lecteur.onerror = rejeter;
+      lecteur.readAsDataURL(blob);
+    });
+  } catch (_) {
+    logoDataUrl = null;
+  }
+}
+
 export function generateSessionPdfReport(
   session: VotingSession,
   voters: Voter[],
@@ -36,7 +60,18 @@ export function generateSessionPdfReport(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(209, 250, 229);
-  doc.text('Système Certifié MediVote Pro • Registre SQLite Conforme', 14, 18);
+  doc.text('SSTI 03 — Allier Prévention Santé Entreprises', 14, 18);
+
+  // Logo de l'organisme, sur pastille blanche pour rester lisible sur le bandeau.
+  if (logoDataUrl) {
+    try {
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(pageWidth - 32, 3, 18, 18, 2, 2, 'F');
+      doc.addImage(logoDataUrl, 'PNG', pageWidth - 31, 4, 16, 16);
+    } catch (_) {
+      // Un logo illisible ne doit pas empêcher l'édition du procès-verbal.
+    }
+  }
 
   // Date of export
   const now = new Date();
@@ -45,7 +80,7 @@ export function generateSessionPdfReport(
     month: 'long',
     year: 'numeric',
   }) + ' à ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  doc.text(`Édité le ${dateStr}`, pageWidth - 14, 18, { align: 'right' });
+  doc.text(`Édité le ${dateStr}`, pageWidth - 36, 18, { align: 'right' });
 
   let y = 32;
 
@@ -97,29 +132,33 @@ export function generateSessionPdfReport(
 
   y += 7;
 
+  // La règle de majorité occupe sa propre ligne : son libellé est trop long pour
+  // tenir en colonne sans recouvrir les mentions voisines.
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`Règle Majorité : `, col1, y);
+  doc.text('Règle de majorité :', col1, y);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`${getMajorityLabel(session.majorityRequired)}`, col1 + 26, y);
+  doc.text(getMajorityLabel(session.majorityRequired), col1 + 32, y);
+
+  y += 6;
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`Quorum Requis : `, col2, y);
+  doc.text('Quorum requis :', col1, y);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  const quorumText = session.quorumPct === 0 
-    ? 'Pas de quorum requis (0%)' 
-    : `${session.quorumPct}% (${stats.quorumNeeded} voix req.)`;
-  doc.text(quorumText, col2 + 27, y);
+  const quorumText = session.quorumPct === 0
+    ? 'Aucun quorum minimum'
+    : `${session.quorumPct} % (${stats.quorumNeeded} voix)`;
+  doc.text(quorumText, col1 + 32, y);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`Contrôle Quorum : `, col3, y);
+  doc.text('Contrôle du quorum :', col3 - 20, y);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(stats.quorumReached ? 5 : 220, stats.quorumReached ? 150 : 38, stats.quorumReached ? 105 : 38);
-  doc.text(stats.quorumReached ? '✓ Quorum Atteint' : '⚠️ Quorum Non Atteint', col3 + 28, y);
+  doc.text(stats.quorumReached ? 'Quorum atteint' : 'Quorum NON atteint', col3 + 15, y);
 
   y += 10;
 
@@ -211,13 +250,13 @@ export function generateSessionPdfReport(
   doc.setFont('helvetica', 'bold');
   if (isAdopted) {
     doc.setTextColor(5, 150, 105);
-    doc.text('✓ MOTION ADOPTÉE', blockResult, y + 12);
+    doc.text('MOTION ADOPTÉE', blockResult, y + 12);
   } else if (isRejected) {
     doc.setTextColor(225, 29, 72);
-    doc.text('✗ MOTION REJETÉE', blockResult, y + 12);
+    doc.text('MOTION REJETÉE', blockResult, y + 12);
   } else if (stats.outcome === 'quorum_not_reached') {
     doc.setTextColor(217, 119, 6);
-    doc.text('⚠️ QUORUM NON ATTEINT', blockResult, y + 12);
+    doc.text('QUORUM NON ATTEINT', blockResult, y + 12);
   } else {
     doc.setTextColor(100, 116, 139);
     doc.text('• EN COURS DE VOTE', blockResult, y + 12);
@@ -271,7 +310,7 @@ export function generateSessionPdfReport(
     // Vote choice label
     let voteLabel = 'En attente';
     if (session.isSecret && session.status !== 'closed') {
-      voteLabel = st.vote !== 'pending' ? '✓ A voté (Secret)' : 'En attente';
+      voteLabel = st.vote !== 'pending' ? 'A voté (secret)' : 'En attente';
     } else {
       if (st.vote === 'for') voteLabel = 'POUR';
       else if (st.vote === 'against') voteLabel = 'CONTRE';
@@ -312,11 +351,12 @@ export function generateSessionPdfReport(
     },
     columnStyles: {
       0: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
-      1: { cellWidth: 46, fontStyle: 'bold' },
-      2: { cellWidth: 42 },
-      3: { cellWidth: 38 },
-      4: { cellWidth: 24, halign: 'center' },
-      5: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 44, fontStyle: 'bold' },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 34 },
+      4: { cellWidth: 20, halign: 'center' },
+      // Assez large pour « ABSTENTION » : le mot ne doit pas se couper en deux.
+      5: { cellWidth: 30, halign: 'center', fontStyle: 'bold' },
     },
     didDrawPage: (data) => {
       // Footer on all pages
