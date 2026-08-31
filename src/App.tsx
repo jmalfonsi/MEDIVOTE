@@ -570,7 +570,7 @@ export default function App() {
 
       {/* Error notification */}
       {error && (
-        <div className="max-w-7xl mx-auto px-4 mt-4">
+        <div className="max-w-[1800px] mx-auto px-6 mt-5">
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between shadow-xs">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600" />
@@ -675,12 +675,12 @@ export default function App() {
 
       {/* Discreet Footer */}
       {!isFullscreenTable && (
-        <footer className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-center text-slate-500 text-xs flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto w-full gap-2 mt-auto">
+        <footer className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-center text-slate-500 text-xs flex flex-col sm:flex-row items-center justify-between max-w-[1800px] mx-auto w-full gap-2 mt-auto">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span className="font-medium text-slate-700">Système de Vote Médical Certifié • Medivote Pro</span>
           </div>
-          <div className="flex items-center gap-3 font-mono text-[11px] text-slate-500">
+          <div className="flex items-center gap-3 font-mono text-[0.6875rem] text-slate-500">
             <span>Persistance SQLite Active</span>
             <span>•</span>
             <span>SSE Synchro Directe</span>

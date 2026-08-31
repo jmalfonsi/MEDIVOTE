@@ -192,7 +192,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 <h4 className="text-xs font-bold text-slate-900 truncate">
                   {activeToast.title}
                 </h4>
-                <span className="text-[10px] font-mono text-slate-400">
+                <span className="text-[0.625rem] font-mono text-slate-400">
                   {formatTime(activeToast.timestamp)}
                 </span>
               </div>
@@ -226,7 +226,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         </span>
 
         {notifications.length > 0 && (
-          <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full border border-emerald-200">
+          <span className="text-[0.6875rem] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full border border-emerald-200">
             {notifications.length}
           </span>
         )}
@@ -251,7 +251,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     Flux d'Événements en Direct
                   </h3>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
+                <p className="text-[0.6875rem] text-slate-500 mt-0.5">
                   Mises à jour temps réel des votes et délibérations
                 </p>
               </div>
@@ -287,7 +287,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex items-center gap-1 p-2 bg-slate-100/70 border-b border-slate-200 text-[11px] font-medium">
+            <div className="flex items-center gap-1 p-2 bg-slate-100/70 border-b border-slate-200 text-[0.6875rem] font-medium">
               <button
                 onClick={() => setFilter('all')}
                 className={`flex-1 py-1 rounded-lg transition ${
@@ -320,7 +320,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 <div className="p-8 text-center text-slate-400 space-y-2">
                   <Bell className="w-8 h-8 mx-auto text-slate-300" />
                   <p className="text-xs font-medium">Aucun événement récent</p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[0.6875rem] text-slate-400">
                     Les actions de vote, début et clôture s'afficheront ici en direct.
                   </p>
                 </div>
@@ -339,7 +339,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         <h4 className="text-xs font-bold text-slate-900 truncate">
                           {notif.title}
                         </h4>
-                        <span className="text-[10px] font-mono text-slate-400">
+                        <span className="text-[0.625rem] font-mono text-slate-400">
                           {formatTime(notif.timestamp)}
                         </span>
                       </div>
@@ -353,7 +353,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-2.5 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-mono">
+            <div className="p-2.5 bg-slate-50 border-t border-slate-200 text-center text-[0.6875rem] text-slate-500 font-mono">
               Serveur SSE actif • Synchro temps réel
             </div>
 

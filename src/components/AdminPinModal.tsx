@@ -81,7 +81,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
 
         <div>
           <h3 className="text-base font-bold text-slate-900">Accès administrateur</h3>
-          <p className="text-[11px] font-semibold text-emerald-700 mt-0.5 uppercase tracking-wide">
+          <p className="text-[0.6875rem] font-semibold text-emerald-700 mt-0.5 uppercase tracking-wide">
             Conseil d'Administration · SSTI 03
           </p>
           <p className="text-xs text-slate-500 mt-1.5">

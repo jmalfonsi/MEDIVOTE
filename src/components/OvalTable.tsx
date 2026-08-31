@@ -102,16 +102,48 @@ export const OvalTable: React.FC<OvalTableProps> = ({
     );
   }
 
-  // Optimized parametric ellipse radius (ensures all 25+ tiles are 100% visible and unclipped in fullscreen)
+  // Placement des sièges autour de la table.
   const isLargeAssembly = totalCount > 18;
-  const radiusX = isFullscreen ? (isLargeAssembly ? 42 : 39.5) : (isLargeAssembly ? 42.5 : 40); 
-  const radiusY = isFullscreen ? (isLargeAssembly ? 34 : 32) : (isLargeAssembly ? 35 : 33);
+  const radiusX = isFullscreen ? (isLargeAssembly ? 42 : 39.5) : (isLargeAssembly ? 42.5 : 40);
+  const radiusY = isFullscreen ? (isLargeAssembly ? 42 : 38) : (isLargeAssembly ? 41 : 37);
+
+  /*
+   * Répartir les sièges à angle constant les tasse sur les flancs : sur une ellipse
+   * aplatie, un même écart d'angle couvre beaucoup moins de distance à gauche et à
+   * droite qu'en haut et en bas. C'est ce qui faisait se chevaucher les cartes et
+   * tronquer les noms. On répartit donc à distance égale le long du pourtour.
+   *
+   * L'ovale est parcouru finement une fois, on relève la distance cumulée, puis on
+   * y prélève les sièges à intervalles réguliers.
+   */
+  const anglesDesSieges = React.useMemo(() => {
+    const PAS = 2000;
+    const cumul: number[] = [0];
+    for (let i = 1; i <= PAS; i++) {
+      const a0 = (2 * Math.PI * (i - 1)) / PAS;
+      const a1 = (2 * Math.PI * i) / PAS;
+      const dx = radiusX * (Math.cos(a1) - Math.cos(a0));
+      const dy = radiusY * (Math.sin(a1) - Math.sin(a0));
+      cumul.push(cumul[i - 1] + Math.hypot(dx, dy));
+    }
+    const perimetre = cumul[PAS];
+
+    const angles: number[] = [];
+    let curseur = 0;
+    for (let siege = 0; siege < totalCount; siege++) {
+      const cible = (perimetre * siege) / totalCount;
+      while (curseur < PAS && cumul[curseur + 1] < cible) curseur++;
+      // Le siège 0 doit se trouver en haut de la table, d'où le quart de tour.
+      angles.push((2 * Math.PI * curseur) / PAS - Math.PI / 2);
+    }
+    return angles;
+  }, [totalCount, radiusX, radiusY]);
 
   const selectedVoter = voters.find(v => v.id === selectedVoterId);
   const selectedState = selectedVoter ? (session.voterStates[selectedVoter.id] || { presence: 'present', vote: 'pending' }) : null;
 
   return (
-    <div className={`relative w-full ${isFullscreen ? 'max-w-none px-2 sm:px-4 py-1' : 'max-w-7xl mx-auto px-2 sm:px-4 py-3'} select-none transition-all`}>
+    <div className={`relative w-full ${isFullscreen ? 'max-w-none px-2 sm:px-4 py-1' : 'max-w-[1800px] mx-auto px-2 sm:px-4 py-3'} select-none transition-all`}>
       
       {/* TOP COMPACT STATUS & CONTROL MONITOR BAR */}
       <div className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 shadow-xs mb-2.5 space-y-2">
@@ -129,17 +161,17 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                   {session.title}
                 </h1>
                 {session.status === 'closed' ? (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
+                  <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
                     Scrutin Clôturé
                   </span>
                 ) : (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
+                  <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Scrutin Ouvert
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
+              <p className="text-[0.6875rem] text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
                 <span className="flex items-center gap-1"><Calendar className="w-3 h-3 text-emerald-600" /> {session.scheduledDate} {session.scheduledTime}</span>
                 <span>•</span>
                 <span>Lieu : <strong className="text-slate-700">{session.location || 'Saint-Victor'}</strong></span>
@@ -311,8 +343,8 @@ export const OvalTable: React.FC<OvalTableProps> = ({
       {/* Main Oval Boardroom Arena */}
       <div className={`relative w-full ${
         isFullscreen 
-          ? 'h-[calc(100vh-130px)] min-h-[600px] max-h-[880px] p-4 sm:p-8 md:p-10' 
-          : 'min-h-[660px] lg:min-h-[720px] p-3 sm:p-6 md:p-8'
+          ? 'h-[calc(100vh-215px)] min-h-[560px] max-h-[1100px] p-3 sm:p-6 md:p-8' 
+          : 'min-h-[860px] lg:min-h-[1000px] p-3 sm:p-6 md:p-8'
       } rounded-3xl bg-[#F4F7F5] border border-slate-200 shadow-sm flex items-center justify-center`}>
         
         {/* Subtle decorative medical cross grid overlay */}
@@ -337,7 +369,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 <FileText className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Texte Soumis au Vote</span>
               </div>
-              <div className="text-[11px] font-mono text-slate-500">
+              <div className="text-[0.6875rem] font-mono text-slate-500">
                 {session.scheduledDate} • {session.scheduledTime}
               </div>
             </div>
@@ -357,7 +389,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               {session.motionText.length > 220 && (
                 <button
                   onClick={() => setIsTextExpanded(!isTextExpanded)}
-                  className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 mt-1 flex items-center gap-0.5"
+                  className="text-[0.6875rem] font-semibold text-emerald-700 hover:text-emerald-800 mt-1 flex items-center gap-0.5"
                 >
                   {isTextExpanded ? 'Réduire le texte' : 'Lire l\'intégralité de la résolution...'}
                 </button>
@@ -400,7 +432,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 />
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+              <div className="flex items-center justify-between text-[0.6875rem] text-slate-500 pt-1">
                 <span>Votants ayant voté : <strong className="text-slate-800">{stats.votedCount}</strong>/{stats.totalEligible}</span>
                 <span>En attente : <strong className="text-amber-700 font-semibold">{stats.notVotedCount}</strong></span>
               </div>
@@ -461,7 +493,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
         {/* SEATS AROUND THE OVAL TABLE */}
         {activeVoters.map((voter, index) => {
           // Angle in radians: distribute evenly around 360 degrees
-          const angle = (2 * Math.PI * index) / totalCount - Math.PI / 2;
+          const angle = anglesDesSieges[index] ?? ((2 * Math.PI * index) / totalCount - Math.PI / 2);
           
           // Calculate parametric position
           const leftPercent = 50 + radiusX * Math.cos(angle);
@@ -535,7 +567,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                       className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: voter.avatarColor || '#059669' }}
                     />
-                    <span className="text-[9px] font-mono text-slate-400 font-medium">
+                    <span className="text-[0.5625rem] font-mono text-slate-400 font-medium">
                       N°{voter.seatNumber || index + 1}
                     </span>
                   </div>
@@ -543,51 +575,53 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                   {/* Presence indicator badge */}
                   <div className="flex items-center">
                     {isPresent && (
-                      <span className="flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                      <span className="flex items-center gap-1 text-[0.5625rem] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                         <span className="hidden sm:inline">Présent</span>
                       </span>
                     )}
                     {isProxy && (
-                      <span className="flex items-center gap-1 text-[9px] font-semibold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200" title={`Procuration donnée à ${proxyRecipient?.name || 'un confrère'}`}>
+                      <span className="flex items-center gap-1 text-[0.5625rem] font-semibold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200" title={`Procuration donnée à ${proxyRecipient?.name || 'un confrère'}`}>
                         <Share2 className="w-2.5 h-2.5 text-amber-600" />
                         <span className="hidden sm:inline">Pouvoir</span>
                       </span>
                     )}
                     {isAbsent && (
-                      <span className="flex items-center gap-1 text-[9px] font-semibold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
+                      <span className="flex items-center gap-1 text-[0.5625rem] font-semibold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                         <span className="hidden sm:inline">Absent</span>
                       </span>
                     )}
                     {isExcused && (
-                      <span className="text-[9px] font-semibold text-slate-600 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
+                      <span className="text-[0.5625rem] font-semibold text-slate-600 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
                         Excusé
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Voter Name & Specialty */}
-                <div className="truncate">
-                  <h4 className="text-[11px] font-bold text-slate-800 truncate flex items-center gap-1">
-                    <span className="text-emerald-700 font-semibold text-[10px]">{voter.title}</span>
-                    <span className="truncate">{voter.name}</span>
+                {/* Nom et fonction. Le nom peut se replier sur deux lignes : en séance,
+                    un administrateur doit se reconnaître à sa place, pas déchiffrer
+                    un nom coupé au milieu. */}
+                <div className="min-w-0">
+                  <h4 className="text-[0.6875rem] font-bold text-slate-800 leading-tight flex items-baseline gap-1">
+                    <span className="text-emerald-700 font-semibold text-[0.625rem] shrink-0">{voter.title}</span>
+                    <span className="break-words">{voter.name}</span>
                   </h4>
-                  <p className="text-[9px] text-slate-500 truncate leading-tight mt-0.5">
+                  <p className="text-[0.5625rem] text-slate-500 truncate leading-tight mt-0.5">
                     {voter.specialty || voter.department}
                   </p>
                 </div>
 
                 {/* Proxy details if given or received */}
                 {isProxy && proxyRecipient && (
-                  <div className="mt-0.5 text-[8.5px] font-semibold text-amber-800 bg-amber-50/80 px-1 py-0.5 rounded border border-amber-200/60 truncate">
+                  <div className="mt-0.5 text-[0.53125rem] font-semibold text-amber-800 bg-amber-50/80 px-1 py-0.5 rounded border border-amber-200/60 truncate">
                     ↳ Pouvoir : {proxyRecipient.name}
                   </div>
                 )}
 
                 {heldProxies.length > 0 && (
-                  <div className="mt-0.5 text-[8.5px] font-bold text-sky-800 bg-sky-50 px-1 py-0.5 rounded border border-sky-200 flex items-center gap-1">
+                  <div className="mt-0.5 text-[0.53125rem] font-bold text-sky-800 bg-sky-50 px-1 py-0.5 rounded border border-sky-200 flex items-center gap-1">
                     <span>🛡️ {heldProxies.length} pouvoir{heldProxies.length > 1 ? 's' : ''}</span>
                   </div>
                 )}
@@ -595,34 +629,34 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 {/* PROMINENT VOTER STATUS BADGE (VOTED / NOT VOTED) */}
                 <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between">
                   {hasVotedFor && (
-                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold animate-in fade-in">
+                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[0.625rem] font-bold animate-in fade-in">
                       <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
                       <span>POUR</span>
                     </div>
                   )}
 
                   {hasVotedAgainst && (
-                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[10px] font-bold animate-in fade-in">
+                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[0.625rem] font-bold animate-in fade-in">
                       <X className="w-3 h-3 text-rose-600 stroke-[3]" />
                       <span>CONTRE</span>
                     </div>
                   )}
 
                   {hasVotedAbstain && (
-                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-bold animate-in fade-in">
+                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[0.625rem] font-bold animate-in fade-in">
                       <span>ABSTENTION</span>
                     </div>
                   )}
 
                   {isPending && (
-                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[9.5px] font-bold">
+                    <div className="w-full flex items-center justify-center gap-1 py-0.5 px-1.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[0.59375rem] font-bold">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
                       <span>EN ATTENTE</span>
                     </div>
                   )}
 
                   {(isAbsent || isExcused) && (
-                    <div className="w-full text-center py-0.5 px-1 rounded-md bg-slate-100 text-slate-400 text-[9px] font-medium">
+                    <div className="w-full text-center py-0.5 px-1 rounded-md bg-slate-100 text-slate-400 text-[0.5625rem] font-medium">
                       NON VOTANT
                     </div>
                   )}
@@ -670,10 +704,10 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono text-emerald-800 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 font-bold">
+                      <span className="text-[0.6875rem] font-mono text-emerald-800 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 font-bold">
                         Siège N°{selVoter.seatNumber}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium truncate max-w-[150px]">{selVoter.department || selVoter.specialty}</span>
+                      <span className="text-[0.6875rem] text-slate-500 font-medium truncate max-w-[150px]">{selVoter.department || selVoter.specialty}</span>
                     </div>
                     <h3 className="text-base font-bold text-slate-900 mt-0.5">
                       {selVoter.title} {selVoter.name}
@@ -695,7 +729,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                   <span className="text-base">🛡️</span>
                   <div>
                     <div className="font-bold">Mandataire ({myHeldProxies.length}/2 pouvoirs reçus) :</div>
-                    <div className="text-[11px] text-sky-800 mt-0.5">
+                    <div className="text-[0.6875rem] text-sky-800 mt-0.5">
                       Ce membre vote pour lui-même et pour : <strong>{myHeldProxies.map(p => p.name).join(', ')}</strong>.
                     </div>
                   </div>
@@ -704,7 +738,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
 
               {/* Presence Selector */}
               <div>
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                <label className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
                   Statut de Présence / Émargement :
                 </label>
                 <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
@@ -769,7 +803,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     <label className="text-xs font-bold text-amber-900 block">
                       Mandataire désigné (2 pouvoirs max) :
                     </label>
-                    <span className="text-[10px] font-mono text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold">
+                    <span className="text-[0.625rem] font-mono text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-bold">
                       Limite : 2 max
                     </span>
                   </div>
@@ -800,7 +834,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                       );
                     })}
                   </select>
-                  <p className="text-[10px] text-amber-700 leading-tight">
+                  <p className="text-[0.625rem] text-amber-700 leading-tight">
                     Règle stricte : Un votant ne peut recevoir plus de 2 pouvoirs pour la séance.
                   </p>
                 </div>
@@ -809,7 +843,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               {/* Vote Action Buttons */}
               {(selState.presence === 'present' || selState.presence === 'proxy') && (
                 <div className="pt-3 border-t border-slate-100">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                  <label className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block mb-2">
                     Exprimer le Suffrage :
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -855,13 +889,13 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                       }`}
                     >
                       <span className="text-xs">ABS.</span>
-                      <span className="text-[10px] opacity-80">Abstention</span>
+                      <span className="text-[0.625rem] opacity-80">Abstention</span>
                     </button>
                   </div>
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100">
+              <div className="pt-2 flex items-center justify-between text-[0.6875rem] text-slate-400 border-t border-slate-100">
                 <span className="truncate max-w-[200px]">{selVoter.email}</span>
                 <button
                   onClick={() => setSelectedVoterId(null)}
@@ -906,23 +940,23 @@ export const OvalTable: React.FC<OvalTableProps> = ({
             {/* Attendance Summary Bar */}
             <div className="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
               <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Collège</span>
+                <span className="text-[0.625rem] uppercase font-bold text-slate-400 block">Total Collège</span>
                 <span className="text-base font-bold text-slate-800">{activeVoters.length}</span>
               </div>
               <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] uppercase font-bold text-emerald-700 block">Présents</span>
+                <span className="text-[0.625rem] uppercase font-bold text-emerald-700 block">Présents</span>
                 <span className="text-base font-bold text-emerald-800">{stats.presentCount}</span>
               </div>
               <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] uppercase font-bold text-amber-700 block">Pouvoirs</span>
+                <span className="text-[0.625rem] uppercase font-bold text-amber-700 block">Pouvoirs</span>
                 <span className="text-base font-bold text-amber-800">{stats.proxyCount}</span>
               </div>
               <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                <span className="text-[10px] uppercase font-bold text-rose-700 block">Absents / Excusés</span>
+                <span className="text-[0.625rem] uppercase font-bold text-rose-700 block">Absents / Excusés</span>
                 <span className="text-base font-bold text-rose-800">{stats.absentCount + stats.excusedCount}</span>
               </div>
               <div className="bg-slate-900 p-2.5 rounded-xl text-white col-span-2 sm:col-span-1">
-                <span className="text-[10px] uppercase font-bold text-emerald-400 block">Total Votant</span>
+                <span className="text-[0.625rem] uppercase font-bold text-emerald-400 block">Total Votant</span>
                 <span className="text-base font-bold text-white">{stats.presentCount + stats.proxyCount}</span>
               </div>
             </div>
@@ -954,12 +988,12 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                           <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                             <span>{voter.title} {voter.name}</span>
                             {heldCount > 0 && (
-                              <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-bold border border-sky-200">
+                              <span className="text-[0.625rem] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-bold border border-sky-200">
                                 🛡️ {heldCount}/2 pouvoir{heldCount > 1 ? 's' : ''}
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500">
+                          <div className="text-[0.6875rem] text-slate-500">
                             {voter.department || voter.specialty} • Siège {voter.seatNumber}
                           </div>
                         </div>

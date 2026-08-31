@@ -125,7 +125,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6 animate-in fade-in">
+    <div className="max-w-[1800px] mx-auto px-6 py-7 space-y-7 animate-in fade-in">
       
       {/* Header */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -265,17 +265,17 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                   <div className="flex items-center gap-3 text-xs">
                     <div className="text-center px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200">
                       <div className="text-emerald-800 font-bold text-sm">{item.votesFor}</div>
-                      <div className="text-[10px] text-emerald-700">Pour</div>
+                      <div className="text-[0.625rem] text-emerald-700">Pour</div>
                     </div>
 
                     <div className="text-center px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200">
                       <div className="text-rose-800 font-bold text-sm">{item.votesAgainst}</div>
-                      <div className="text-[10px] text-rose-700">Contre</div>
+                      <div className="text-[0.625rem] text-rose-700">Contre</div>
                     </div>
 
                     <div className="text-center px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200">
                       <div className="text-slate-700 font-bold text-sm">{item.votesAbstain}</div>
-                      <div className="text-[10px] text-slate-500">Abst.</div>
+                      <div className="text-[0.625rem] text-slate-500">Abst.</div>
                     </div>
                   </div>
 
@@ -431,17 +431,17 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                       <div key={v.id} className="py-2 px-3 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-slate-800">{v.title} {v.name}</span>
-                          <span className="text-[11px] text-slate-500">({v.specialty})</span>
+                          <span className="text-[0.6875rem] text-slate-500">({v.specialty})</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          <span className={`px-2 py-0.5 rounded text-[0.625rem] font-semibold ${
                             st?.presence === 'present' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
                             st?.presence === 'proxy' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-500'
                           }`}>
                             {st?.presence === 'present' ? 'Présent' : st?.presence === 'proxy' ? 'Procuration' : 'Absent'}
                           </span>
 
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          <span className={`px-2 py-0.5 rounded text-[0.625rem] font-bold ${
                             st?.vote === 'for' ? 'bg-emerald-600 text-white' :
                             st?.vote === 'against' ? 'bg-rose-600 text-white' :
                             st?.vote === 'abstain' ? 'bg-slate-600 text-white' : 'bg-slate-100 text-slate-500'
@@ -458,7 +458,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
 
             {/* Footer buttons */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-              <div className="text-[11px] text-slate-500 font-mono">
+              <div className="text-[0.6875rem] text-slate-500 font-mono">
                 Archivé le {new Date(selectedItem.closedAt).toLocaleString('fr-FR')} • Certifié SQLite
               </div>
               <button

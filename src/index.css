@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
 @layer base {
+  /* Échelle typographique de l'application. Tout est exprimé en rem : relever cette
+     valeur agrandit l'ensemble de l'interface d'un bloc, sans retoucher les écrans
+     un par un. Une séance se lit à plusieurs mètres, sur un écran partagé. */
+  html {
+    font-size: 18px;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     background-color: #F4F7F5;

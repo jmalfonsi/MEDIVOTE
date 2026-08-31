@@ -119,7 +119,34 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
 
   // Parametric ellipse radius for oval table
   const radiusX = 42;
-  const radiusY = 38;
+  const radiusY = 41;
+
+  /*
+   * Même règle que sur la table de séance : les sièges sont posés à distance égale
+   * le long du pourtour, et non à angle constant, sans quoi ils se tassent sur les
+   * flancs de l'ovale et les cartes se recouvrent.
+   */
+  const anglesDesSieges = React.useMemo(() => {
+    const PAS = 2000;
+    const cumul: number[] = [0];
+    for (let i = 1; i <= PAS; i++) {
+      const a0 = (2 * Math.PI * (i - 1)) / PAS;
+      const a1 = (2 * Math.PI * i) / PAS;
+      cumul.push(
+        cumul[i - 1] +
+          Math.hypot(radiusX * (Math.cos(a1) - Math.cos(a0)), radiusY * (Math.sin(a1) - Math.sin(a0)))
+      );
+    }
+    const perimetre = cumul[PAS];
+    const angles: number[] = [];
+    let curseur = 0;
+    for (let siege = 0; siege < totalCount; siege++) {
+      const cible = (perimetre * siege) / totalCount;
+      while (curseur < PAS && cumul[curseur + 1] < cible) curseur++;
+      angles.push((2 * Math.PI * curseur) / PAS - Math.PI / 2);
+    }
+    return angles;
+  }, [totalCount, radiusX, radiusY]);
 
   const isPresent = currentState?.presence === 'present' || currentState?.presence === 'proxy';
   const hasVoted = currentState && currentState.vote !== 'pending';
@@ -129,7 +156,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
       
       {/* 1. TOP HEADER (VOTER IDENTITY & QUICK CONTROLS) */}
       <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-3 sm:px-6 py-2.5 sticky top-0 z-30 shadow-2xs">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-[1800px] mx-auto flex items-center justify-between gap-2 sm:gap-4">
           
           {/* Logo & Meeting Reference */}
           <div className="flex items-center gap-2.5 sm:gap-3">
@@ -141,14 +168,14 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs sm:text-sm text-slate-900">Medivote Pro</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
+                <span className="text-[0.625rem] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
                   Mode Votant
                 </span>
-                <span className="hidden md:inline text-[10px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                <span className="hidden md:inline text-[0.625rem] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                   {session.referenceCode}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 hidden sm:block truncate max-w-[280px]">
+              <p className="text-[0.6875rem] text-slate-500 hidden sm:block truncate max-w-[280px]">
                 {session.title}
               </p>
             </div>
@@ -166,13 +193,13 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
               <div className="text-xs font-bold text-slate-900 truncate max-w-[130px] sm:max-w-[180px] flex items-center gap-1">
                 <span>{currentVoter.title} {currentVoter.name}</span>
               </div>
-              <div className="text-[10px] text-emerald-800 font-medium truncate">
+              <div className="text-[0.625rem] text-emerald-800 font-medium truncate">
                 Votre Siège N°{currentVoter.seatNumber}
               </div>
             </div>
             <button
               onClick={onChangeVoter}
-              className="ml-1 px-2 py-1 rounded-lg bg-white hover:bg-emerald-100 border border-emerald-200 text-emerald-900 text-[11px] font-semibold transition flex items-center gap-1"
+              className="ml-1 px-2 py-1 rounded-lg bg-white hover:bg-emerald-100 border border-emerald-200 text-emerald-900 text-[0.6875rem] font-semibold transition flex items-center gap-1"
               title="Changer de délibérateur / votant"
             >
               <ArrowLeftRight className="w-3 h-3" />
@@ -204,7 +231,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
       </header>
 
       {/* 2. STATS & MONITOR HEADER BAR */}
-      <div className="max-w-7xl mx-auto w-full px-3 sm:px-6 pt-3">
+      <div className="max-w-[1800px] mx-auto w-full px-4 sm:px-8 pt-4">
         <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
           
           {/* Quorum & Participation */}
@@ -252,9 +279,9 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
       </div>
 
       {/* 3. MAIN OVAL BOARDROOM TABLE ARENA (FULL PAGE) */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-4 py-4 flex items-center justify-center">
+      <main className="flex-1 max-w-[1800px] w-full mx-auto px-3 sm:px-6 py-5 flex items-center justify-center">
         
-        <div className="relative w-full min-h-[640px] sm:min-h-[700px] lg:min-h-[740px] rounded-3xl bg-[#F4F7F5] border border-slate-200/90 shadow-sm overflow-hidden p-3 sm:p-6 flex items-center justify-center select-none">
+        <div className="relative w-full min-h-[620px] sm:min-h-[660px] lg:min-h-[700px] rounded-3xl bg-[#F4F7F5] border border-slate-200/90 shadow-sm overflow-hidden p-3 sm:p-6 flex items-center justify-center select-none">
           
           {/* Subtle medical grid background */}
           <div className="absolute inset-0 bg-medical-grid opacity-60 pointer-events-none"></div>
@@ -278,7 +305,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                   <FileText className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Résolution Soumise au Vote</span>
                 </div>
-                <div className="text-[11px] font-mono text-slate-500">
+                <div className="text-[0.6875rem] font-mono text-slate-500">
                   {session.scheduledDate} • {session.scheduledTime}
                 </div>
               </div>
@@ -298,7 +325,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 {session.motionText.length > 220 && (
                   <button
                     onClick={() => setIsTextExpanded(!isTextExpanded)}
-                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 mt-1 flex items-center gap-0.5"
+                    className="text-[0.6875rem] font-semibold text-emerald-700 hover:text-emerald-800 mt-1 flex items-center gap-0.5"
                   >
                     {isTextExpanded ? 'Réduire le texte' : 'Lire l\'intégralité de la résolution...'}
                   </button>
@@ -338,7 +365,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                   />
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                <div className="flex items-center justify-between text-[0.6875rem] text-slate-500 pt-1">
                   <span>Suffrages exprimés : <strong className="text-slate-800">{stats.votedCount}</strong>/{stats.totalEligible}</span>
                   <span>En attente : <strong className="text-amber-700 font-semibold">{stats.notVotedCount}</strong></span>
                 </div>
@@ -351,7 +378,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
           {/* ALL VOTER SEATS AROUND THE OVAL TABLE */}
           {activeVoters.map((voter, index) => {
             // Angle in radians: distribute evenly around 360 degrees
-            const angle = (2 * Math.PI * index) / totalCount - Math.PI / 2;
+            const angle = anglesDesSieges[index] ?? ((2 * Math.PI * index) / totalCount - Math.PI / 2);
             
             // Calculate parametric position
             const leftPercent = 50 + radiusX * Math.cos(angle);
@@ -411,7 +438,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 >
                   {/* Highlight pill for current user's seat */}
                   {isMe && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full shadow-md tracking-wider flex items-center gap-1 border border-emerald-400 whitespace-nowrap">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[0.5625rem] font-extrabold uppercase px-2 py-0.5 rounded-full shadow-md tracking-wider flex items-center gap-1 border border-emerald-400 whitespace-nowrap">
                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
                       <span>Votre Siège</span>
                     </div>
@@ -424,26 +451,26 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                         className="w-2 h-2 rounded-full"
                         style={{ backgroundColor: voter.avatarColor || '#059669' }}
                       />
-                      <span className="text-[10px] font-mono text-slate-400 font-medium">
+                      <span className="text-[0.625rem] font-mono text-slate-400 font-medium">
                         N°{voter.seatNumber || index + 1}
                       </span>
                     </div>
 
                     <div className="flex items-center">
                       {isSeatPresent && (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        <span className="flex items-center gap-1 text-[0.625rem] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                           <span className="hidden sm:inline">Présent</span>
                         </span>
                       )}
                       {isSeatProxy && (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                        <span className="flex items-center gap-1 text-[0.625rem] font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
                           <Share2 className="w-2.5 h-2.5 text-amber-600" />
                           <span className="hidden sm:inline">Procuration</span>
                         </span>
                       )}
                       {isSeatAbsent && (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
+                        <span className="flex items-center gap-1 text-[0.625rem] font-semibold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                           <span className="hidden sm:inline">Absent</span>
                         </span>
@@ -454,10 +481,10 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                   {/* Voter Name & Specialty */}
                   <div className="truncate">
                     <h4 className="text-xs font-bold text-slate-800 truncate flex items-center gap-1">
-                      <span className="text-emerald-700 font-semibold text-[11px]">{voter.title}</span>
+                      <span className="text-emerald-700 font-semibold text-[0.6875rem]">{voter.title}</span>
                       <span className="truncate">{voter.name}</span>
                     </h4>
-                    <p className="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
+                    <p className="text-[0.625rem] text-slate-500 truncate leading-tight mt-0.5">
                       {voter.specialty || voter.department}
                     </p>
                   </div>
@@ -485,14 +512,14 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                     )}
 
                     {isSeatPending && (
-                      <div className="w-full flex items-center justify-center gap-1 py-1 px-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold">
+                      <div className="w-full flex items-center justify-center gap-1 py-1 px-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[0.6875rem] font-bold">
                         <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
                         <span>EN ATTENTE</span>
                       </div>
                     )}
 
                     {(isSeatAbsent || isSeatExcused) && (
-                      <div className="w-full text-center py-1 px-2 rounded-lg bg-slate-100 text-slate-400 text-[10px] font-medium">
+                      <div className="w-full text-center py-1 px-2 rounded-lg bg-slate-100 text-slate-400 text-[0.625rem] font-medium">
                         NON VOTANT
                       </div>
                     )}
@@ -521,7 +548,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 <span>Vote également pour : <strong>{myHeldProxies.map(p => p.name).join(', ')}</strong></span>
               </div>
             </div>
-            <span className="text-[11px] font-bold bg-sky-600 text-white px-2 py-0.5 rounded-lg whitespace-nowrap">
+            <span className="text-[0.6875rem] font-bold bg-sky-600 text-white px-2 py-0.5 rounded-lg whitespace-nowrap">
               Poids : {myHeldProxies.length + 1} voix
             </span>
           </div>
@@ -548,7 +575,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 {currentVoter.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
               </div>
               <div className="text-left">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                <span className="text-[0.625rem] font-bold uppercase tracking-wider text-emerald-700 block">
                   Votre Délibération
                 </span>
                 <span className="text-xs sm:text-sm font-bold text-slate-900 block truncate max-w-[200px]">
@@ -561,7 +588,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs border border-slate-200">
               <button
                 onClick={() => onSetPresence(currentVoter.id, 'present')}
-                className={`px-2 py-1 rounded-lg font-semibold transition text-[11px] ${
+                className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'present'
                     ? 'bg-emerald-600 text-white shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -577,7 +604,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                   });
                   onSetPresence(currentVoter.id, 'proxy', defaultTarget?.id || null);
                 }}
-                className={`px-2 py-1 rounded-lg font-semibold transition text-[11px] ${
+                className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'proxy'
                     ? 'bg-amber-600 text-white shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -587,7 +614,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
               </button>
               <button
                 onClick={() => onSetPresence(currentVoter.id, 'absent')}
-                className={`px-2 py-1 rounded-lg font-semibold transition text-[11px] ${
+                className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'absent'
                     ? 'bg-rose-600 text-white shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -699,10 +726,10 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono text-emerald-800 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 font-bold">
+                      <span className="text-[0.6875rem] font-mono text-emerald-800 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 font-bold">
                         Siège N°{selVoter.seatNumber}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium truncate max-w-[140px]">{selVoter.department || selVoter.specialty}</span>
+                      <span className="text-[0.6875rem] text-slate-500 font-medium truncate max-w-[140px]">{selVoter.department || selVoter.specialty}</span>
                     </div>
                     <h3 className="text-base font-bold text-slate-900 mt-0.5">
                       {selVoter.title} {selVoter.name}
@@ -736,7 +763,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 </div>
               </div>
 
-              <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
+              <div className="pt-1 flex items-center justify-between text-[0.6875rem] text-slate-400">
                 <span className="truncate max-w-[200px]">{selVoter.email}</span>
                 <button
                   onClick={() => setSelectedSeatVoterId(null)}

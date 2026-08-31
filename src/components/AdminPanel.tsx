@@ -403,7 +403,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-6 space-y-6 animate-in fade-in">
+    <div className="max-w-[1800px] mx-auto px-4 sm:px-8 py-7 space-y-7 animate-in fade-in">
       
       {/* Top Admin Header */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -665,7 +665,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }`}
               >
                 <span>Toutes les séances</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${meetingFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
                   {meetings.length}
                 </span>
               </button>
@@ -680,7 +680,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                 <span>En cours (Active)</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${meetingFilter === 'active' ? 'bg-emerald-700 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'active' ? 'bg-emerald-700 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
                   {meetings.filter(m => m.isActiveMeeting && m.status !== 'closed').length}
                 </span>
               </button>
@@ -695,7 +695,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <Hourglass className="w-3 h-3 text-amber-600" />
                 <span>En attente</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${meetingFilter === 'pending' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'pending' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'}`}>
                   {meetings.filter(m => !m.isActiveMeeting && m.status !== 'closed').length}
                 </span>
               </button>
@@ -710,7 +710,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <Lock className="w-3 h-3 text-slate-500" />
                 <span>Archivées & Scellées</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${meetingFilter === 'closed' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'closed' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
                   {meetings.filter(m => m.status === 'closed').length}
                 </span>
               </button>
@@ -750,11 +750,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* Active ribbon prompt */}
                       {isActive && (
                         <div className="absolute -top-3 left-4 right-4 flex items-center justify-between">
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5">
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[0.625rem] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
                             Séance Active en direct
                           </span>
-                          <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition">
+                          <span className="text-[0.625rem] text-emerald-800 font-semibold bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition">
                             Cliquer pour ouvrir la table ↗
                           </span>
                         </div>
@@ -762,7 +762,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       <div className={`space-y-2.5 ${isActive ? 'pt-1' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-[11px] font-mono px-2 py-0.5 rounded font-bold border ${
+                          <span className={`text-[0.6875rem] font-mono px-2 py-0.5 rounded font-bold border ${
                             isActive 
                               ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300' 
                               : isPending
@@ -773,17 +773,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
 
                           {isClosed ? (
-                            <span className="text-[10px] font-bold text-slate-800 bg-slate-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-slate-300 shadow-2xs">
+                            <span className="text-[0.625rem] font-bold text-slate-800 bg-slate-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-slate-300 shadow-2xs">
                               <Lock className="w-3 h-3 text-slate-600" />
                               ARCHIVÉE & SCELLÉE
                             </span>
                           ) : isActive ? (
-                            <span className="text-[10px] font-bold text-emerald-900 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-emerald-400 shadow-2xs">
+                            <span className="text-[0.625rem] font-bold text-emerald-900 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-emerald-400 shadow-2xs">
                               <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
                               EN COURS (1 SEULE ACTIVE)
                             </span>
                           ) : (
-                            <span className="text-[10px] font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-full flex items-center gap-1 border border-amber-300">
+                            <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-full flex items-center gap-1 border border-amber-300">
                               <Hourglass className="w-3 h-3 text-amber-700" />
                               EN ATTENTE
                             </span>
@@ -799,7 +799,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </p>
                         </div>
 
-                        <div className={`space-y-1 text-[11px] pt-2 border-t ${
+                        <div className={`space-y-1 text-[0.6875rem] pt-2 border-t ${
                           isActive ? 'border-emerald-200 text-emerald-900' : 'border-slate-200 text-slate-500'
                         }`}>
                           <div className="flex items-center justify-between">
@@ -880,7 +880,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </button>
                           ) : (
                             <span 
-                              className="px-2 py-1 rounded-lg bg-slate-200 text-slate-600 text-[10px] font-semibold flex items-center gap-1 border border-slate-300"
+                              className="px-2 py-1 rounded-lg bg-slate-200 text-slate-600 text-[0.625rem] font-semibold flex items-center gap-1 border border-slate-300"
                               title="Cette séance est clôturée et archivée. Elle est scellée et ne peut être ni modifiée ni supprimée."
                             >
                               <Lock className="w-3 h-3 text-slate-500" />
@@ -1033,25 +1033,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Quorum & Presence Metrics Bar */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Membres Collège</span>
+                    <span className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block">Membres Collège</span>
                     <strong className="text-xl font-bold text-slate-900">{sessionVoters.length}</strong>
-                    <span className="text-[11px] text-slate-400 block mt-0.5">1 seule liste exclusive</span>
+                    <span className="text-[0.6875rem] text-slate-400 block mt-0.5">1 seule liste exclusive</span>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200">
-                    <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">Présents Physiques</span>
+                    <span className="text-[0.6875rem] font-bold text-emerald-800 uppercase tracking-wider block">Présents Physiques</span>
                     <strong className="text-xl font-bold text-emerald-900">{presentCount}</strong>
-                    <span className="text-[11px] text-emerald-700 block mt-0.5">{sessionVoters.length ? Math.round((presentCount / sessionVoters.length) * 100) : 0}% du collège</span>
+                    <span className="text-[0.6875rem] text-emerald-700 block mt-0.5">{sessionVoters.length ? Math.round((presentCount / sessionVoters.length) * 100) : 0}% du collège</span>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200">
-                    <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">Procurations Valides</span>
+                    <span className="text-[0.6875rem] font-bold text-amber-800 uppercase tracking-wider block">Procurations Valides</span>
                     <strong className="text-xl font-bold text-amber-900">{proxyCount}</strong>
-                    <span className="text-[11px] text-amber-700 block mt-0.5">2 max par mandataire</span>
+                    <span className="text-[0.6875rem] text-amber-700 block mt-0.5">2 max par mandataire</span>
                   </div>
 
                   <div className={`p-3.5 rounded-2xl border ${isQuorumReached ? 'bg-emerald-50/70 border-emerald-300' : 'bg-rose-50/70 border-rose-300'}`}>
-                    <span className="text-[11px] font-bold uppercase tracking-wider block text-slate-700">
+                    <span className="text-[0.6875rem] font-bold uppercase tracking-wider block text-slate-700">
                       Règle de Quorum
                     </span>
                     <div className="flex items-center gap-1.5 mt-0.5">
@@ -1062,7 +1062,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         / {sessionVoters.length} voix ({quorumPct === 0 ? 'Sans Quorum' : `${quorumPct}% req.`})
                       </span>
                     </div>
-                    <span className={`text-[11px] font-semibold block mt-0.5 ${isQuorumReached ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    <span className={`text-[0.6875rem] font-semibold block mt-0.5 ${isQuorumReached ? 'text-emerald-700' : 'text-rose-700'}`}>
                       {quorumPct === 0 ? '✓ Aucun quorum minimum requis' : isQuorumReached ? '✓ Quorum atteint' : '⚠️ Quorum non atteint'}
                     </span>
                   </div>
@@ -1104,7 +1104,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-2.5">
                                   <div
-                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[0.6875rem] font-bold flex-shrink-0"
                                     style={{ backgroundColor: voter.avatarColor || '#0ea5e9' }}
                                   >
                                     {voter.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
@@ -1112,11 +1112,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   <div>
                                     <div className="font-bold text-slate-900 flex items-center gap-1.5">
                                       <span>{voter.title} {voter.name}</span>
-                                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                      <span className="text-[0.625rem] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
                                         N°{voter.seatNumber}
                                       </span>
                                     </div>
-                                    <div className="text-[11px] text-slate-500">
+                                    <div className="text-[0.6875rem] text-slate-500">
                                       {voter.email || voter.department || voter.specialty}
                                     </div>
                                   </div>
@@ -1128,7 +1128,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
                                   <button
                                     onClick={() => onSetPresence?.(voter.id, 'present', null)}
-                                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition ${
+                                    className={`px-2 py-1 rounded-lg text-[0.6875rem] font-semibold transition ${
                                       state.presence === 'present'
                                         ? 'bg-emerald-600 text-white shadow-2xs'
                                         : 'text-slate-600 hover:text-slate-900'
@@ -1146,7 +1146,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       });
                                       onSetPresence?.(voter.id, 'proxy', defaultTarget?.id || null);
                                     }}
-                                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition ${
+                                    className={`px-2 py-1 rounded-lg text-[0.6875rem] font-semibold transition ${
                                       state.presence === 'proxy'
                                         ? 'bg-amber-600 text-white shadow-2xs'
                                         : 'text-slate-600 hover:text-slate-900'
@@ -1157,7 +1157,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                                   <button
                                     onClick={() => onSetPresence?.(voter.id, 'absent', null)}
-                                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition ${
+                                    className={`px-2 py-1 rounded-lg text-[0.6875rem] font-semibold transition ${
                                       state.presence === 'absent'
                                         ? 'bg-rose-600 text-white shadow-2xs'
                                         : 'text-slate-600 hover:text-slate-900'
@@ -1204,11 +1204,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {heldProxies.length > 0 ? (
                                   <div className="space-y-1">
                                     <div className="flex items-center gap-1">
-                                      <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-900 font-bold text-[11px] border border-sky-200">
+                                      <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-900 font-bold text-[0.6875rem] border border-sky-200">
                                         🛡️ {heldProxies.length}/2 pouvoir{heldProxies.length > 1 ? 's' : ''}
                                       </span>
                                     </div>
-                                    <div className="text-[10px] text-slate-500 truncate max-w-[180px]">
+                                    <div className="text-[0.625rem] text-slate-500 truncate max-w-[180px]">
                                       De : {heldProxies.map(p => p.name).join(', ')}
                                     </div>
                                   </div>
@@ -1228,11 +1228,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     {1 + heldProxies.length} voix
                                   </span>
                                 ) : state.presence === 'proxy' ? (
-                                  <span className="text-[11px] text-amber-700 font-semibold">
+                                  <span className="text-[0.6875rem] text-amber-700 font-semibold">
                                     ↳ Transmis
                                   </span>
                                 ) : (
-                                  <span className="text-[11px] text-slate-400 font-medium">
+                                  <span className="text-[0.6875rem] text-slate-400 font-medium">
                                     0 voix
                                   </span>
                                 )}
@@ -1412,12 +1412,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <span className="font-bold text-slate-800 block truncate">
                               {voter.title} {voter.name}
                             </span>
-                            <span className="text-[10px] text-slate-400 truncate block">
+                            <span className="text-[0.625rem] text-slate-400 truncate block">
                               {voter.email || voter.specialty}
                             </span>
                           </div>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded ml-1 flex-shrink-0">
+                        <span className="text-[0.625rem] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded ml-1 flex-shrink-0">
                           N°{voter.seatNumber || idx + 1}
                         </span>
                       </div>
@@ -1483,11 +1483,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </span>
                       </div>
                       {voter.email && (
-                        <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate max-w-[180px]">
+                        <p className="text-[0.6875rem] text-slate-500 font-mono mt-0.5 truncate max-w-[180px]">
                           {voter.email}
                         </p>
                       )}
-                      <p className="text-[10px] text-slate-400">
+                      <p className="text-[0.625rem] text-slate-400">
                         {voter.department || voter.specialty} • Siège N°{voter.seatNumber} • Poids: {voter.weight}
                       </p>
                     </div>
@@ -1690,19 +1690,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="grid grid-cols-3 gap-2 text-center py-2 bg-white rounded-xl border border-slate-200/80 text-xs">
                       <div>
                         <span className="text-emerald-700 font-bold block">{item.votesFor}</span>
-                        <span className="text-[10px] text-slate-500">Pour</span>
+                        <span className="text-[0.625rem] text-slate-500">Pour</span>
                       </div>
                       <div>
                         <span className="text-rose-700 font-bold block">{item.votesAgainst}</span>
-                        <span className="text-[10px] text-slate-500">Contre</span>
+                        <span className="text-[0.625rem] text-slate-500">Contre</span>
                       </div>
                       <div>
                         <span className="text-slate-700 font-bold block">{item.votesAbstain}</span>
-                        <span className="text-[10px] text-slate-500">Abstention</span>
+                        <span className="text-[0.625rem] text-slate-500">Abstention</span>
                       </div>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1">
+                    <div className="text-[0.6875rem] text-slate-500 flex items-center justify-between pt-1">
                       <span>Clôturé le {new Date(item.closedAt).toLocaleDateString('fr-FR')}</span>
                       <span>Présents : {item.totalPresent}/{item.totalEligible}</span>
                     </div>
@@ -1717,7 +1717,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
 
-                    <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1" title="Registre officiel inaltérable">
+                    <span className="text-[0.6875rem] text-slate-400 font-medium flex items-center gap-1" title="Registre officiel inaltérable">
                       <Lock className="w-3 h-3 text-slate-400" />
                       <span>Archive scellée</span>
                     </span>
@@ -1758,19 +1758,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="grid grid-cols-4 gap-2 text-center text-xs">
                   <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
                     <span className="text-lg font-bold text-emerald-800 block">{selectedHistorySnapshot.votesFor}</span>
-                    <span className="text-[10px] text-emerald-600 font-semibold">POUR</span>
+                    <span className="text-[0.625rem] text-emerald-600 font-semibold">POUR</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200">
                     <span className="text-lg font-bold text-rose-800 block">{selectedHistorySnapshot.votesAgainst}</span>
-                    <span className="text-[10px] text-rose-600 font-semibold">CONTRE</span>
+                    <span className="text-[0.625rem] text-rose-600 font-semibold">CONTRE</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200">
                     <span className="text-lg font-bold text-slate-800 block">{selectedHistorySnapshot.votesAbstain}</span>
-                    <span className="text-[10px] text-slate-600 font-semibold">ABSTENTION</span>
+                    <span className="text-[0.625rem] text-slate-600 font-semibold">ABSTENTION</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-teal-50 border border-teal-200">
                     <span className="text-lg font-bold text-teal-800 block">{selectedHistorySnapshot.totalCast}</span>
-                    <span className="text-[10px] text-teal-600 font-semibold">EXPRIMÉS</span>
+                    <span className="text-[0.625rem] text-teal-600 font-semibold">EXPRIMÉS</span>
                   </div>
                 </div>
 
@@ -1829,7 +1829,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="p-2 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 text-left text-xs transition"
                   >
                     <strong className="text-slate-800 block truncate">{tpl.title}</strong>
-                    <span className="text-[10px] text-slate-500 font-mono">{tpl.ref}</span>
+                    <span className="text-[0.625rem] text-slate-500 font-mono">{tpl.ref}</span>
                   </button>
                 ))}
               </div>
@@ -1898,7 +1898,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                   <span>Texte Intégral à Voter (Affiché au Centre de la Table Ovale)</span>
-                  <span className="text-[11px] text-slate-500">{motionText.length} caractères</span>
+                  <span className="text-[0.6875rem] text-slate-500">{motionText.length} caractères</span>
                 </label>
                 <textarea
                   value={motionText}
@@ -1917,7 +1917,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <MapPin className="w-3.5 h-3.5 text-emerald-600" />
                     Lieu de Séance
                   </span>
-                  <span className="text-[11px] text-slate-500 font-normal">
+                  <span className="text-[0.6875rem] text-slate-500 font-normal">
                     {PREDEFINED_LOCATIONS.includes(location as any) ? 'Lieu prédéfini' : 'Lieu personnalisé'}
                   </span>
                 </label>
@@ -2000,7 +2000,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuorumPct(0)}
-                      className={`py-1 px-1 rounded-lg text-[11px] font-bold border transition ${
+                      className={`py-1 px-1 rounded-lg text-[0.6875rem] font-bold border transition ${
                         quorumPct === 0
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2011,7 +2011,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuorumPct(50)}
-                      className={`py-1 px-1 rounded-lg text-[11px] font-bold border transition ${
+                      className={`py-1 px-1 rounded-lg text-[0.6875rem] font-bold border transition ${
                         quorumPct === 50
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2022,7 +2022,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuorumPct(66)}
-                      className={`py-1 px-1 rounded-lg text-[11px] font-bold border transition ${
+                      className={`py-1 px-1 rounded-lg text-[0.6875rem] font-bold border transition ${
                         quorumPct === 66
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2033,7 +2033,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuorumPct(75)}
-                      className={`py-1 px-1 rounded-lg text-[11px] font-bold border transition ${
+                      className={`py-1 px-1 rounded-lg text-[0.6875rem] font-bold border transition ${
                         quorumPct === 75
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2070,7 +2070,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         key={l.id}
                         type="button"
                         onClick={() => handleSelectAttendeesByList(l)}
-                        className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-semibold"
+                        className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[0.6875rem] font-semibold"
                       >
                         Liste {l.code} ({l.voterIds.length})
                       </button>
@@ -2081,14 +2081,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       type="button"
                       onClick={handleSelectAllAttendees}
-                      className="text-emerald-700 hover:underline font-semibold text-[11px]"
+                      className="text-emerald-700 hover:underline font-semibold text-[0.6875rem]"
                     >
                       Tout cocher
                     </button>
                     <button
                       type="button"
                       onClick={handleDeselectAllAttendees}
-                      className="text-slate-500 hover:underline text-[11px]"
+                      className="text-slate-500 hover:underline text-[0.6875rem]"
                     >
                       Tout décocher
                     </button>
@@ -2118,7 +2118,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <span className="font-bold text-slate-800 block truncate">
                             {v.title} {v.name}
                           </span>
-                          <span className="text-[10px] text-slate-500 truncate block">
+                          <span className="text-[0.625rem] text-slate-500 truncate block">
                             {v.specialty || v.department}
                           </span>
                         </div>
@@ -2198,7 +2198,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                   <span>Texte brut des votants & emails</span>
-                  <span className="text-[10px] text-slate-400">Séparateur ";" ou retours à la ligne</span>
+                  <span className="text-[0.625rem] text-slate-400">Séparateur ";" ou retours à la ligne</span>
                 </label>
                 <textarea
                   rows={6}

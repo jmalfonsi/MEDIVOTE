@@ -108,7 +108,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white tracking-tight">Medivote Pro</h2>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 font-mono">
+                <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 font-mono">
                   Sécurisé
                 </span>
               </div>
@@ -120,8 +120,8 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
 
           {session && (
             <div className="hidden sm:block text-right">
-              <span className="text-[11px] font-mono text-emerald-400 font-bold block">{session.referenceCode}</span>
-              <span className="text-[11px] text-slate-300 truncate max-w-[180px] block">{session.title}</span>
+              <span className="text-[0.6875rem] font-mono text-emerald-400 font-bold block">{session.referenceCode}</span>
+              <span className="text-[0.6875rem] text-slate-300 truncate max-w-[180px] block">{session.title}</span>
             </div>
           )}
         </div>
@@ -246,7 +246,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
                             <div className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-900">
                               {voter.title} {voter.name}
                             </div>
-                            <div className="text-[11px] text-slate-500 truncate">
+                            <div className="text-[0.6875rem] text-slate-500 truncate">
                               {voter.specialty} • Siège {voter.seatNumber}
                             </div>
                           </div>
@@ -254,7 +254,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
 
                         <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                           {hasVoted && (
-                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span className="text-[0.625rem] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                               A voté
                             </span>
