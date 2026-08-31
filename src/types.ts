@@ -1,5 +1,6 @@
 export type PresenceStatus = 'present' | 'absent' | 'excused' | 'proxy';
-export type VoteChoice = 'for' | 'against' | 'abstain' | 'pending';
+/** 'secret' : le membre a voté, mais le sens de son bulletin est masqué jusqu'à la clôture. */
+export type VoteChoice = 'for' | 'against' | 'abstain' | 'pending' | 'secret';
 export type MajorityType = 'simple' | 'absolute' | 'two_thirds' | 'unanimous';
 export type SessionStatus = 'draft' | 'open' | 'closed';
 export type SessionOutcome = 'pending' | 'adopted' | 'rejected' | 'quorum_not_reached';
@@ -158,4 +159,10 @@ export interface VoteStatistics {
   outcome: SessionOutcome;
   votedCount: number;
   notVotedCount: number;
+  /** Bulletins déposés dont le sens est masqué (scrutin secret en cours). */
+  votesSecrets: number;
+  /** Non-votants présents assimilés à des abstentions lors de la finalisation (règle D5). */
+  abstentionsAssimilees: number;
+  /** true lorsque le décompte est celui de la clôture, pas une tendance en cours de scrutin. */
+  resultatFinalise: boolean;
 }

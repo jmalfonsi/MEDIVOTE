@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { auth } from '../services/api';
 import { 
   UserCheck, 
   ShieldCheck, 
@@ -22,8 +23,6 @@ interface ModeSelectionModalProps {
   onSelectAdmin: () => void;
 }
 
-export const ADMIN_PIN_CODE = '582103';
-
 export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
   isOpen,
   voters,
@@ -36,7 +35,8 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
   const [selectedListFilter, setSelectedListFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [verification, setVerification] = useState(false);
 
   if (!isOpen) return null;
 
@@ -59,36 +59,40 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
     );
   });
 
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pin.trim() === ADMIN_PIN_CODE) {
-      setPinError(false);
+  // Le code n'est jamais comparé dans le navigateur : seul le serveur le connaît.
+  const soumettreCode = async (code: string) => {
+    if (verification) return;
+    setVerification(true);
+    try {
+      await auth.connexionAdmin(code);
       setPin('');
+      setPinError(null);
       onSelectAdmin();
-    } else {
-      setPinError(true);
+    } catch (err: any) {
+      setPin('');
+      setPinError(err?.message || 'Code administrateur incorrect.');
+    } finally {
+      setVerification(false);
     }
   };
 
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void soumettreCode(pin.trim());
+  };
+
   const handleDigitClick = (digit: string) => {
-    if (pin.length < 6) {
+    if (pin.length < 6 && !verification) {
       const nextPin = pin + digit;
       setPin(nextPin);
-      setPinError(false);
-      if (nextPin === ADMIN_PIN_CODE) {
-        setTimeout(() => {
-          setPin('');
-          onSelectAdmin();
-        }, 150);
-      } else if (nextPin.length === 6) {
-        setPinError(true);
-      }
+      setPinError(null);
+      if (nextPin.length === 6) void soumettreCode(nextPin);
     }
   };
 
   const handleBackspace = () => {
     setPin(prev => prev.slice(0, -1));
-    setPinError(false);
+    setPinError(null);
   };
 
   return (
@@ -272,7 +276,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900">Accès Administrateur</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Veuillez saisir le code PIN de sécurité (<strong>582103</strong>) pour déverrouiller la table et l'administration.
+                  Saisissez le code administrateur pour déverrouiller la table et l'administration.
                 </p>
               </div>
 
@@ -298,7 +302,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
               {pinError && (
                 <div className="text-xs font-semibold text-rose-600 flex items-center justify-center gap-1.5 animate-in fade-in">
                   <AlertCircle className="w-4 h-4" />
-                  Code PIN incorrect. Veuillez réessayer.
+                  {pinError}
                 </div>
               )}
 
@@ -311,7 +315,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
                     onClick={() => {
                       if (k === 'C') {
                         setPin('');
-                        setPinError(false);
+                        setPinError(null);
                       } else if (k === '⌫') {
                         handleBackspace();
                       } else {
@@ -332,10 +336,10 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
               <form onSubmit={handlePinSubmit} className="pt-2">
                 <button
                   type="submit"
-                  disabled={pin.length !== 6}
+                  disabled={pin.length !== 6 || verification}
                   className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs transition shadow-xs"
                 >
-                  Valider le code d'accès
+                  {verification ? 'Vérification…' : "Valider le code d'accès"}
                 </button>
               </form>
             </div>

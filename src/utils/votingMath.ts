@@ -1,6 +1,22 @@
 import { VotingSession, Voter, VoteStatistics, SessionOutcome } from '../types';
 
-export function calculateVoteStatistics(session: VotingSession | null, voters: Voter[]): VoteStatistics {
+/**
+ * Règles de scrutin retenues pour cet organisme (arbitrées le 31/08/2026) :
+ *  - D1 : les abstentions ENTRENT dans les suffrages exprimés. En majorité absolue
+ *         et aux deux tiers, une abstention pèse donc comme une voix contre.
+ *  - D2 : le quorum vaut 0 par défaut (réputé atteint), et reste réglable par séance.
+ *  - D5 : un membre présent qui n'a pas voté est assimilé à une abstention — mais
+ *         seulement à la CLÔTURE, pas pendant que le scrutin est ouvert.
+ *
+ * `finaliser` distingue les deux temps : pendant le scrutin on affiche une tendance
+ * et les non-votants restent visibles comme tels ; à la clôture ils basculent en
+ * abstention et le résultat devient définitif. Le serveur est seul à finaliser.
+ */
+export function calculateVoteStatistics(
+  session: VotingSession | null,
+  voters: Voter[],
+  options?: { finaliser?: boolean }
+): VoteStatistics {
   if (!session) {
     return {
       totalEligible: 0,
@@ -22,6 +38,9 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
       outcome: 'pending',
       votedCount: 0,
       notVotedCount: 0,
+      votesSecrets: 0,
+      abstentionsAssimilees: 0,
+      resultatFinalise: false,
     };
   }
 
@@ -42,6 +61,7 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
   let votesAgainst = 0;
   let votesAbstain = 0;
   let votesPending = 0;
+  let votesSecrets = 0;
 
   activeVoters.forEach(voter => {
     const state = session.voterStates[voter.id] || { presence: 'present', vote: 'pending' };
@@ -77,6 +97,10 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
         case 'abstain':
           votesAbstain += weight;
           break;
+        case 'secret':
+          // Bulletin déposé mais masqué : il a été exprimé, son sens n'est pas connu ici.
+          votesSecrets += weight;
+          break;
         default:
           votesPending += weight;
           break;
@@ -84,13 +108,21 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
     }
   });
 
+  // Règle D5 : à la clôture, les présents n'ayant pas voté deviennent des abstentions.
+  const finaliser = options?.finaliser ?? session.status === 'closed';
+  const abstentionsAssimilees = finaliser ? votesPending : 0;
+  if (finaliser) {
+    votesAbstain += votesPending;
+    votesPending = 0;
+  }
+
   const totalEffectivePresent = presentCount + proxyCount;
   const quorumPct = session.quorumPct ?? 0;
   const quorumNeeded = quorumPct > 0 ? Math.ceil((totalEligible * quorumPct) / 100) : 0;
   const quorumReached = quorumPct === 0 ? true : totalEffectivePresent >= quorumNeeded;
 
+  // Règle D1 : les abstentions sont comprises dans les suffrages exprimés.
   const totalExpressed = votesFor + votesAgainst + votesAbstain;
-  const totalDecisive = votesFor + votesAgainst; // excluding abstentions for standard French hospital board majority rules
 
   const forPercentage = totalExpressed > 0 ? Math.round((votesFor / totalExpressed) * 100) : 0;
   const againstPercentage = totalExpressed > 0 ? Math.round((votesAgainst / totalExpressed) * 100) : 0;
@@ -102,8 +134,8 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
     outcome = session.outcome;
   } else if (!quorumReached) {
     outcome = 'quorum_not_reached';
-  } else if (votesPending === 0 && totalExpressed > 0) {
-    // All votes cast, determine live project outcome
+  } else if ((finaliser || votesPending === 0) && totalExpressed > 0) {
+    // Scrutin complet, ou clôture demandée : le sens du vote est déterminé
     switch (session.majorityRequired) {
       case 'simple':
         // Plus de Pour que de Contre
@@ -127,7 +159,7 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
   const votedCount = activeVoters.filter(v => {
     const s = session.voterStates[v.id];
     const canVote = s?.presence === 'present' || s?.presence === 'proxy';
-    return canVote && (s?.vote === 'for' || s?.vote === 'against' || s?.vote === 'abstain');
+    return canVote && (s?.vote === 'for' || s?.vote === 'against' || s?.vote === 'abstain' || s?.vote === 'secret');
   }).length;
 
   const notVotedCount = activeVoters.filter(v => {
@@ -156,15 +188,18 @@ export function calculateVoteStatistics(session: VotingSession | null, voters: V
     outcome,
     votedCount,
     notVotedCount,
+    votesSecrets,
+    abstentionsAssimilees,
+    resultatFinalise: finaliser,
   };
 }
 
 export function getMajorityLabel(type: string): string {
   switch (type) {
-    case 'simple': return 'Majorité Simple (Pour > Contre)';
-    case 'absolute': return 'Majorité Absolue (> 50% exprimés)';
-    case 'two_thirds': return 'Majorité Qualifiée (2/3)';
-    case 'unanimous': return 'Unanimité (100%)';
+    case 'simple': return 'Majorité simple (Pour > Contre)';
+    case 'absolute': return 'Majorité absolue (> 50 % des exprimés, abstentions comprises)';
+    case 'two_thirds': return 'Majorité qualifiée (2/3 des exprimés, abstentions comprises)';
+    case 'unanimous': return 'Unanimité (aucun contre ni abstention)';
     default: return type;
   }
 }

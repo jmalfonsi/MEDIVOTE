@@ -2,5 +2,5 @@
   "name": "MediVote - Système de Vote & Table Ovale Médicale",
   "description": "Système de vote interactif professionnel pour assemblées et comités médicaux avec table ovale en direct, gestion des présences et archivage SQLite.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

@@ -9,7 +9,7 @@ import {
   RealtimeNotification,
   VoterList
 } from './types';
-import { api } from './services/api';
+import { api, auth, SessionExpiree } from './services/api';
 import { calculateVoteStatistics } from './utils/votingMath';
 import { Navbar } from './components/Navbar';
 import { OvalTable } from './components/OvalTable';
@@ -41,6 +41,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isCloseModalOpen, setIsCloseModalOpen] = useState<boolean>(false);
+  // Tant que le serveur n'a pas reconnu une session administrateur, rien n'est chargé.
+  const [sessionOuverte, setSessionOuverte] = useState<boolean>(false);
 
   // Toggle table full screen mode
   const handleToggleFullscreen = useCallback(() => {
@@ -71,6 +73,10 @@ export default function App() {
 
   // Load initial data from SQLite backend
   const loadData = useCallback(async () => {
+    if (!sessionOuverte) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -94,16 +100,36 @@ export default function App() {
         setSelectedVoterId(firstActive.id);
       }
     } catch (err: any) {
-      console.error('Failed to load MediVote data:', err);
-      setError('Impossible de se connecter au serveur SQLite. Veuillez vérifier le serveur.');
+      if (err instanceof SessionExpiree) {
+        setSessionOuverte(false);
+        setIsAdminPinModalOpen(true);
+        setError(null);
+      } else {
+        console.error('Chargement des données MediVote impossible :', err);
+        setError('Le serveur ne répond pas. Vérifiez qu\'il est démarré, puis réessayez.');
+      }
     } finally {
       setLoading(false);
     }
-  }, [selectedVoterId]);
+  }, [selectedVoterId, sessionOuverte]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Une session peut déjà être ouverte sur ce poste (rechargement de page en séance).
+  useEffect(() => {
+    let annule = false;
+    auth.estConnecte().then(ouverte => {
+      if (annule) return;
+      setSessionOuverte(ouverte);
+      setIsAdminPinModalOpen(!ouverte);
+      if (!ouverte) setLoading(false);
+    }).catch(() => {
+      if (!annule) setLoading(false);
+    });
+    return () => { annule = true; };
+  }, []);
 
   // Real-time Server-Sent Events (SSE) stream subscription
   useEffect(() => {
@@ -437,6 +463,32 @@ export default function App() {
     setIsModeModalOpen(false);
   };
 
+  // Écran de garde : sans session administrateur ouverte côté serveur, rien ne s'affiche.
+  if (!sessionOuverte) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F5] flex flex-col items-center justify-center gap-6 p-4">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 mx-auto">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-slate-900 mt-3">MediVote — accès protégé</h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-xs">
+            Cette séance est verrouillée. Saisissez le code administrateur pour ouvrir la table de vote.
+          </p>
+        </div>
+        <AdminPinModal
+          isOpen={true}
+          onClose={() => {}}
+          onSuccess={() => {
+            setSessionOuverte(true);
+            setIsAdminPinModalOpen(false);
+            setAppMode('admin');
+          }}
+        />
+      </div>
+    );
+  }
+
   if (loading && !session) {
     return (
       <div className="min-h-screen bg-[#F4F7F5] flex flex-col items-center justify-center text-slate-600 gap-4">
@@ -475,11 +527,12 @@ export default function App() {
           onSelectAdmin={handleSelectAdmin}
         />
 
-        {/* PIN Code Verification Modal (PIN 582103) */}
+        {/* Vérification du code administrateur (le code est contrôlé par le serveur) */}
         <AdminPinModal
           isOpen={isAdminPinModalOpen}
           onClose={() => setIsAdminPinModalOpen(false)}
           onSuccess={() => {
+            setSessionOuverte(true);
             setAppMode('admin');
             setIsAdminPinModalOpen(false);
           }}

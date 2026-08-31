@@ -27,10 +27,40 @@ import {
   getRecentEvents,
   clearEvents,
   resetToDemoData,
+  getSessionById,
+  sauvegarderBase,
 } from './server/db';
+import {
+  authentifierAdmin,
+  exigerAdmin,
+  lireJeton,
+  revoquerJeton,
+  verifierConfiguration,
+  poserCookie,
+  effacerCookie,
+} from './server/auth';
 import { RealtimeNotification } from './src/types';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT || process.env.MEDIVOTE_PORT || 3000);
+const HOTE = process.env.MEDIVOTE_HOST || '0.0.0.0';
+
+/**
+ * Scrutin secret : le flux temps réel et le journal ne doivent jamais rapprocher un
+ * nom d'un choix. On remplace donc la notification nominative par un accusé anonyme.
+ */
+function anonymiserSiSecret(
+  notif: RealtimeNotification,
+  estSecret: boolean
+): RealtimeNotification {
+  if (!estSecret) return notif;
+  return {
+    ...notif,
+    title: 'Suffrage exprimé',
+    message: 'Un suffrage a été exprimé (scrutin secret).',
+    voterName: undefined,
+    voteChoice: undefined,
+  };
+}
 
 // Active SSE client connections pool
 const sseClients: Array<{ id: string; res: Response }> = [];
@@ -46,18 +76,78 @@ function broadcastSSE(event: RealtimeNotification) {
   });
 }
 
+/**
+ * Tant qu'un scrutin secret n'est pas clôturé, le serveur ne laisse pas sortir le
+ * détail nominatif des bulletins : la présence reste visible (l'émargement est
+ * public), le sens du vote de chacun ne l'est pas. Les décomptes globaux, eux,
+ * continuent d'être calculés côté serveur à la clôture.
+ */
+function masquerBulletinsSiSecret(session: any): any {
+  if (!session || !session.isSecret || session.status === 'closed') return session;
+  const voterStates: Record<string, any> = {};
+  Object.entries(session.voterStates || {}).forEach(([voterId, etat]: [string, any]) => {
+    voterStates[voterId] = {
+      ...etat,
+      vote: etat.vote === 'pending' ? 'pending' : 'secret',
+      votedAt: etat.votedAt ? 'secret' : etat.votedAt,
+    };
+  });
+  return { ...session, voterStates };
+}
+
+/** Applique le masquage à toute charge JSON portant une séance, sans exception oubliée. */
+function protegerScrutinSecret(req: any, res: any, next: any): void {
+  const jsonOriginal = res.json.bind(res);
+  res.json = (corps: any) => {
+    if (corps && typeof corps === 'object' && 'session' in corps) {
+      return jsonOriginal({ ...corps, session: masquerBulletinsSiSecret(corps.session) });
+    }
+    return jsonOriginal(corps);
+  };
+  next();
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json());
 
   // Initialize SQLite database
+  verifierConfiguration();
   await initDatabase();
-  console.log('SQLite MediVote database initialized.');
+  console.log('Base SQLite MediVote initialisée.');
 
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
+
+  // Authentification administrateur
+  app.post('/api/auth/admin', (req, res) => {
+    try {
+      const empreintePoste = req.ip || 'inconnu';
+      const jeton = authentifierAdmin(req.body?.pin, empreintePoste);
+      poserCookie(res, jeton);
+      res.json({ role: jeton.role, expireA: jeton.expireA });
+    } catch (err: any) {
+      res.status(401).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/auth/moi', (req, res) => {
+    const jeton = lireJeton(req);
+    if (!jeton) return res.status(401).json({ error: 'Session expirée.' });
+    res.json({ role: jeton.role, voterId: jeton.voterId, expireA: jeton.expireA });
+  });
+
+  app.post('/api/auth/deconnexion', (req, res) => {
+    revoquerJeton(req);
+    effacerCookie(res);
+    res.json({ success: true });
+  });
+
+  // À partir d'ici, toute l'API exige une session administrateur ouverte.
+  app.use('/api', exigerAdmin);
+  app.use('/api', protegerScrutinSecret);
 
   // Real-time SSE event stream
   app.get('/api/events', (req, res) => {
@@ -241,7 +331,9 @@ async function startServer() {
       const voteLabel = vote === 'for' ? 'POUR (Adoption)' : vote === 'against' ? 'CONTRE (Rejet)' : vote === 'abstain' ? 'ABSTENTION' : 'En attente';
       const voterNameStr = voter ? `${voter.title} ${voter.name}` : voterId;
 
-      const notif = logEvent({
+      // En scrutin secret, ni le nom ni le choix ne sont journalisés ni diffusés.
+      const estSecret = Boolean(getSessionById(sessionId)?.isSecret);
+      const notif = logEvent(anonymiserSiSecret({
         type: 'vote_cast',
         title: 'Suffrage Exprimé',
         message: `${voterNameStr} a voté : ${voteLabel}`,
@@ -249,7 +341,7 @@ async function startServer() {
         voteChoice: vote,
         sessionId,
         timestamp: new Date().toISOString()
-      });
+      } as RealtimeNotification, estSecret));
       broadcastSSE(notif);
 
       res.json({ session, voters });
@@ -310,8 +402,14 @@ async function startServer() {
 
   app.post('/api/session/close', (req, res) => {
     try {
-      const { sessionId, stats } = req.body;
-      const result = archiveAndCloseSession(sessionId, stats);
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ error: 'Séance non précisée' });
+
+      // Le décompte transmis par le navigateur est ignoré : le serveur recalcule le
+      // résultat officiel à partir des bulletins en base, puis sauvegarde le registre.
+      const { history: archive, stats } = archiveAndCloseSession(sessionId);
+      sauvegarderBase(`cloture_${sessionId}`);
+
       const voters = getAllVoters();
       const history = getHistory();
       const meetings = getAllMeetings();
@@ -322,19 +420,26 @@ async function startServer() {
           ? 'RÉSOLUTION REJETÉE' 
           : 'QUORUM NON ATTEINT';
 
+      const mentionAssimilees = stats.abstentionsAssimilees > 0
+        ? ` Dont ${stats.abstentionsAssimilees} non-votant(s) présent(s) assimilé(s) à une abstention.`
+        : '';
+
       const notif = logEvent({
         type: 'vote_ended',
         title: `Scrutin Clôturé : ${outcomeLabel}`,
-        message: `Résultat final : ${stats.votesFor} Pour, ${stats.votesAgainst} Contre, ${stats.votesAbstain} Abstention (${stats.forPercentage}% d'adhésion). Archivé dans SQLite.`,
+        message: `Résultat final : ${stats.votesFor} Pour, ${stats.votesAgainst} Contre, ${stats.votesAbstain} Abstention (${stats.forPercentage} % d'adhésion).${mentionAssimilees}`,
         outcome: stats.outcome,
         sessionId,
         timestamp: new Date().toISOString()
       });
       broadcastSSE(notif);
 
-      res.json({ ...result, voters, history, meetings });
+      res.json({ ...archive, stats, voters, history, meetings });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      // Séance introuvable ou déjà clôturée : c'est une erreur de manipulation,
+      // pas une panne du serveur — l'écran doit le dire tel quel.
+      const conflit = /déjà clôturée|introuvable/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
     }
   });
 

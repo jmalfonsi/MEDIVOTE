@@ -9,11 +9,56 @@ import {
   VoterList 
 } from '../types';
 
+/**
+ * Toutes les requêtes portent le cookie de session administrateur. Une réponse 401
+ * signifie que la session a expiré : l'application le signale pour redemander le code
+ * plutôt que d'échouer silencieusement en pleine séance.
+ */
+export class SessionExpiree extends Error {
+  constructor() {
+    super('Session administrateur expirée. Saisissez à nouveau le code.');
+    this.name = 'SessionExpiree';
+  }
+}
+
+async function verifier(res: Response, messageErreur: string): Promise<any> {
+  if (res.status === 401) throw new SessionExpiree();
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.error || messageErreur);
+  }
+  return res.json();
+}
+
+export const auth = {
+  /** Échange le code administrateur contre une session serveur. */
+  async connexionAdmin(pin: string): Promise<void> {
+    const res = await fetch('/api/auth/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(detail?.error || 'Code administrateur incorrect.');
+    }
+  },
+
+  /** Indique si une session administrateur est encore ouverte sur ce poste. */
+  async estConnecte(): Promise<boolean> {
+    const res = await fetch('/api/auth/moi');
+    return res.ok;
+  },
+
+  async deconnexion(): Promise<void> {
+    await fetch('/api/auth/deconnexion', { method: 'POST' });
+  },
+};
+
 export const api = {
   async getActiveSession(): Promise<{ session: VotingSession | null; voters: Voter[]; meetings?: MeetingItem[] }> {
     const res = await fetch('/api/session/active');
-    if (!res.ok) throw new Error('Erreur lors du chargement de la session');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement de la session');
   },
 
   async saveSession(session: Partial<VotingSession> & { attendeeIds?: string[] }): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
@@ -22,8 +67,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(session),
     });
-    if (!res.ok) throw new Error('Erreur lors de la sauvegarde de la session');
-    return res.json();
+    return verifier(res, 'Erreur lors de la sauvegarde de la session');
   },
 
   async castVote(sessionId: string, voterId: string, vote: VoteChoice): Promise<{ session: VotingSession; voters: Voter[] }> {
@@ -32,8 +76,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, voterId, vote }),
     });
-    if (!res.ok) throw new Error('Erreur lors de l\'enregistrement du vote');
-    return res.json();
+    return verifier(res, 'Erreur lors de l\'enregistrement du vote');
   },
 
   async setPresence(sessionId: string, voterId: string, presence: PresenceStatus, proxyToId?: string | null): Promise<{ session: VotingSession; voters: Voter[] }> {
@@ -42,8 +85,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, voterId, presence, proxyToId }),
     });
-    if (!res.ok) throw new Error('Erreur lors du changement de présence');
-    return res.json();
+    return verifier(res, 'Erreur lors du changement de présence');
   },
 
   async resetVotes(sessionId: string): Promise<{ session: VotingSession; voters: Voter[] }> {
@@ -52,8 +94,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    if (!res.ok) throw new Error('Erreur lors de la réinitialisation');
-    return res.json();
+    return verifier(res, 'Erreur lors de la réinitialisation');
   },
 
   async closeSession(sessionId: string, stats: any): Promise<{ session: VotingSession; history: SessionHistoryItem[]; voters: Voter[]; meetings: MeetingItem[] }> {
@@ -62,15 +103,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, stats }),
     });
-    if (!res.ok) throw new Error('Erreur lors de la clôture du vote');
-    return res.json();
+    return verifier(res, 'Erreur lors de la clôture du vote');
   },
 
   // Meetings CRUD
   async getMeetings(): Promise<{ meetings: MeetingItem[] }> {
     const res = await fetch('/api/meetings');
-    if (!res.ok) throw new Error('Erreur lors du chargement des réunions');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement des réunions');
   },
 
   async createMeeting(meetingData: Partial<VotingSession> & { attendeeIds?: string[] }): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
@@ -79,8 +118,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(meetingData),
     });
-    if (!res.ok) throw new Error('Erreur lors de la création de la réunion');
-    return res.json();
+    return verifier(res, 'Erreur lors de la création de la réunion');
   },
 
   async switchMeeting(meetingId: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
@@ -89,27 +127,23 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId }),
     });
-    if (!res.ok) throw new Error('Erreur lors du changement de réunion');
-    return res.json();
+    return verifier(res, 'Erreur lors du changement de réunion');
   },
 
   async deleteMeeting(id: string): Promise<{ success: boolean; session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
     const res = await fetch(`/api/meetings/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Erreur lors de la suppression de la réunion');
-    return res.json();
+    return verifier(res, 'Erreur lors de la suppression de la réunion');
   },
 
   async duplicateMeeting(id: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
     const res = await fetch(`/api/meetings/${id}/duplicate`, { method: 'POST' });
-    if (!res.ok) throw new Error('Erreur lors de la duplication de la réunion');
-    return res.json();
+    return verifier(res, 'Erreur lors de la duplication de la réunion');
   },
 
   // Voters directory
   async getVoters(): Promise<{ voters: Voter[] }> {
     const res = await fetch('/api/voters');
-    if (!res.ok) throw new Error('Erreur lors du chargement des votants');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement des votants');
   },
 
   async saveVoter(voter: Partial<Voter> & { name: string }): Promise<{ voter: Voter; voters: Voter[]; session: VotingSession }> {
@@ -118,47 +152,40 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(voter),
     });
-    if (!res.ok) throw new Error('Erreur lors de la sauvegarde du votant');
-    return res.json();
+    return verifier(res, 'Erreur lors de la sauvegarde du votant');
   },
 
   async deleteVoter(id: string): Promise<{ voters: Voter[]; session: VotingSession }> {
     const res = await fetch(`/api/voters/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Erreur lors de la suppression');
-    return res.json();
+    return verifier(res, 'Erreur lors de la suppression');
   },
 
   // History
   async getHistory(): Promise<{ history: SessionHistoryItem[] }> {
     const res = await fetch('/api/history');
-    if (!res.ok) throw new Error('Erreur lors du chargement de l\'historique');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement de l\'historique');
   },
 
   async deleteHistory(id: string): Promise<{ history: SessionHistoryItem[] }> {
     const res = await fetch(`/api/history/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Erreur lors de la suppression de l\'archive');
-    return res.json();
+    return verifier(res, 'Erreur lors de la suppression de l\'archive');
   },
 
   // Notifications
   async getNotifications(): Promise<{ notifications: RealtimeNotification[] }> {
     const res = await fetch('/api/notifications');
-    if (!res.ok) throw new Error('Erreur lors du chargement des notifications');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement des notifications');
   },
 
   async clearNotifications(): Promise<{ success: boolean }> {
     const res = await fetch('/api/notifications/clear', { method: 'POST' });
-    if (!res.ok) throw new Error('Erreur lors de la suppression des notifications');
-    return res.json();
+    return verifier(res, 'Erreur lors de la suppression des notifications');
   },
 
   // Voter lists & bulk import
   async getLists(): Promise<{ lists: VoterList[] }> {
     const res = await fetch('/api/lists');
-    if (!res.ok) throw new Error('Erreur lors du chargement des listes');
-    return res.json();
+    return verifier(res, 'Erreur lors du chargement des listes');
   },
 
   async saveList(listData: Partial<VoterList> & { name: string; voterIds: string[] }): Promise<{ list: VoterList; lists: VoterList[] }> {
@@ -167,14 +194,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(listData),
     });
-    if (!res.ok) throw new Error('Erreur lors de la sauvegarde de la liste');
-    return res.json();
+    return verifier(res, 'Erreur lors de la sauvegarde de la liste');
   },
 
   async deleteList(id: string): Promise<{ success: boolean; lists: VoterList[] }> {
     const res = await fetch(`/api/lists/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Erreur lors de la suppression de la liste');
-    return res.json();
+    return verifier(res, 'Erreur lors de la suppression de la liste');
   },
 
   async applyList(sessionId: string, listId: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
@@ -183,8 +208,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, listId }),
     });
-    if (!res.ok) throw new Error('Erreur lors de l\'application de la liste');
-    return res.json();
+    return verifier(res, 'Erreur lors de l\'application de la liste');
   },
 
   async importVoters(text: string, listCode?: string): Promise<{ count: number; voters: Voter[]; lists: VoterList[]; session: VotingSession }> {
@@ -193,14 +217,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, listCode }),
     });
-    if (!res.ok) throw new Error('Erreur lors de l\'importation des votants');
-    return res.json();
+    return verifier(res, 'Erreur lors de l\'importation des votants');
   },
 
   // Reset
   async resetDemo(): Promise<{ session: VotingSession; voters: Voter[]; history: SessionHistoryItem[]; meetings: MeetingItem[] }> {
     const res = await fetch('/api/reset-demo', { method: 'POST' });
-    if (!res.ok) throw new Error('Erreur lors de la réinitialisation');
-    return res.json();
+    return verifier(res, 'Erreur lors de la réinitialisation');
   },
 };

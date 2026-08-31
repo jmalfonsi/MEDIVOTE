@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, X, AlertCircle, KeyRound } from 'lucide-react';
-import { ADMIN_PIN_CODE } from './ModeSelectionModal';
+import { auth } from '../services/api';
 
 interface AdminPinModalProps {
   isOpen: boolean;
@@ -14,42 +14,46 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
   onSuccess,
 }) => {
   const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [verification, setVerification] = useState(false);
 
   if (!isOpen) return null;
 
+  // Le code est vérifié par le serveur : il n'existe pas dans le code du navigateur.
+  const soumettreCode = async (code: string) => {
+    if (verification) return;
+    setVerification(true);
+    try {
+      await auth.connexionAdmin(code);
+      setPin('');
+      setError(null);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setPin('');
+      setError(err?.message || 'Code administrateur incorrect.');
+    } finally {
+      setVerification(false);
+    }
+  };
+
   const handleDigitClick = (digit: string) => {
-    if (pin.length < 6) {
+    if (pin.length < 6 && !verification) {
       const nextPin = pin + digit;
       setPin(nextPin);
-      setError(false);
-      if (nextPin === ADMIN_PIN_CODE) {
-        setTimeout(() => {
-          setPin('');
-          onSuccess();
-          onClose();
-        }, 150);
-      } else if (nextPin.length === 6) {
-        setError(true);
-      }
+      setError(null);
+      if (nextPin.length === 6) void soumettreCode(nextPin);
     }
   };
 
   const handleBackspace = () => {
     setPin(prev => prev.slice(0, -1));
-    setError(false);
+    setError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin.trim() === ADMIN_PIN_CODE) {
-      setPin('');
-      setError(false);
-      onSuccess();
-      onClose();
-    } else {
-      setError(true);
-    }
+    void soumettreCode(pin.trim());
   };
 
   return (
@@ -70,7 +74,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
         <div>
           <h3 className="text-base font-bold text-slate-900">Accès Administrateur</h3>
           <p className="text-xs text-slate-500 mt-1">
-            Entrez le code PIN (<strong>582103</strong>) pour basculer vers la Table Ovale et les paramètres.
+            Entrez le code administrateur pour basculer vers la Table Ovale et les paramètres.
           </p>
         </div>
 
@@ -96,7 +100,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
         {error && (
           <div className="text-xs font-semibold text-rose-600 flex items-center justify-center gap-1.5 animate-in fade-in">
             <AlertCircle className="w-4 h-4" />
-            Code PIN incorrect
+            {error}
           </div>
         )}
 
@@ -109,7 +113,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
               onClick={() => {
                 if (k === 'C') {
                   setPin('');
-                  setError(false);
+                  setError(null);
                 } else if (k === '⌫') {
                   handleBackspace();
                 } else {
@@ -130,10 +134,10 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
         <form onSubmit={handleSubmit}>
           <button
             type="submit"
-            disabled={pin.length !== 6}
+            disabled={pin.length !== 6 || verification}
             className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs transition shadow-xs"
           >
-            Déverrouiller
+            {verification ? 'Vérification…' : 'Déverrouiller'}
           </button>
         </form>
 

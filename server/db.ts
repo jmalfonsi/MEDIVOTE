@@ -1,6 +1,7 @@
 import initSqlJs, { Database } from 'sql.js';
 import fs from 'fs';
 import path from 'path';
+import { calculateVoteStatistics } from '../src/utils/votingMath';
 import { 
   Voter, 
   VotingSession, 
@@ -9,11 +10,13 @@ import {
   SessionOutcome,
   MeetingItem,
   RealtimeNotification,
-  VoterList
+  VoterList,
+  VoteStatistics
 } from '../src/types';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.MEDIVOTE_DATA_DIR || path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'medivote.sqlite');
+const BACKUP_DIR = path.join(DATA_DIR, 'sauvegardes');
 
 let db: Database;
 
@@ -361,11 +364,38 @@ export async function initDatabase(): Promise<Database> {
   return db;
 }
 
+/**
+ * Écriture atomique : la base est d'abord écrite dans un fichier temporaire, vidée sur
+ * le disque, puis renommée. Une coupure en cours d'écriture laisse donc intacte la
+ * dernière version valide, au lieu d'un fichier tronqué — une séance ne se perd pas.
+ */
 export function saveDbToDisk(): void {
   if (!db) return;
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_FILE, buffer);
+  const buffer = Buffer.from(db.export());
+  const tmpFile = `${DB_FILE}.tmp`;
+  const fd = fs.openSync(tmpFile, 'w');
+  try {
+    fs.writeFileSync(fd, buffer);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpFile, DB_FILE);
+}
+
+/** Copie horodatée de la base, prise à chaque clôture de scrutin. */
+export function sauvegarderBase(motif: string): string | null {
+  try {
+    if (!fs.existsSync(DB_FILE)) return null;
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const horodatage = new Date().toISOString().replace(/[:.]/g, '-');
+    const cible = path.join(BACKUP_DIR, `medivote_${horodatage}_${motif}.sqlite`);
+    fs.copyFileSync(DB_FILE, cible);
+    return cible;
+  } catch (err) {
+    console.error('Sauvegarde impossible :', err);
+    return null;
+  }
 }
 
 // Voter repository
@@ -689,6 +719,13 @@ export function getAllMeetings(): MeetingItem[] {
   });
 }
 
+/** Charge une séance précise par son identifiant, bulletins compris. */
+export function getSessionById(sessionId: string): VotingSession | null {
+  const res = db.exec("SELECT * FROM sessions WHERE id = ? LIMIT 1", [sessionId]);
+  if (!res.length || !res[0].values.length) return null;
+  return hydrateSession(res[0].columns, res[0].values[0]);
+}
+
 export function getActiveSession(): VotingSession | null {
   let res = db.exec("SELECT * FROM sessions WHERE is_current_active = 1 AND status != 'closed' LIMIT 1");
   if (!res.length || !res[0].values.length) {
@@ -704,8 +741,11 @@ export function getActiveSession(): VotingSession | null {
   }
   if (!res.length || !res[0].values.length) return null;
 
-  const row = res[0].values[0];
-  const cols = res[0].columns;
+  return hydrateSession(res[0].columns, res[0].values[0]);
+}
+
+/** Construit une VotingSession à partir d'une ligne SQL de `sessions`. */
+function hydrateSession(cols: string[], row: any[]): VotingSession {
   const s: any = {};
   cols.forEach((col, i) => { s[col] = row[i]; });
 
@@ -959,13 +999,30 @@ export function resetSessionVotes(sessionId: string): void {
   saveDbToDisk();
 }
 
-export function archiveAndCloseSession(sessionId: string, stats: any): SessionHistoryItem {
-  const session = getActiveSession();
-  if (!session) throw new Error('Session introuvable');
+/**
+ * Clôture une séance. Le résultat officiel est recalculé ICI, à partir des bulletins
+ * en base : rien de ce que le navigateur envoie n'est retenu pour le procès-verbal.
+ */
+export function archiveAndCloseSession(sessionId: string): { history: SessionHistoryItem; stats: VoteStatistics } {
+  const session = getSessionById(sessionId);
+  if (!session) throw new Error('Séance introuvable');
+  if (session.status === 'closed') throw new Error('Cette séance est déjà clôturée.');
 
   const voters = getAllVoters();
-  const voterStatesList: VoterSessionState[] = Object.values(session.voterStates);
+  const stats = calculateVoteStatistics(session, voters, { finaliser: true });
   const now = new Date().toISOString();
+
+  // Règle D5 : les présents n'ayant pas voté sont inscrits au registre comme abstentions,
+  // pour que le détail nominatif du PV concorde avec le décompte publié.
+  if (stats.abstentionsAssimilees > 0) {
+    db.run(
+      `UPDATE session_voter_states SET vote_choice='abstain'
+       WHERE session_id=? AND vote_choice='pending' AND presence IN ('present','proxy')`,
+      [sessionId]
+    );
+  }
+  const sessionFigee = getSessionById(sessionId) || session;
+  const voterStatesList: VoterSessionState[] = Object.values(sessionFigee.voterStates);
 
   db.run(
     `UPDATE sessions SET status='closed', outcome=?, closed_at=?, is_current_active=0 WHERE id=?`,
@@ -981,7 +1038,8 @@ export function archiveAndCloseSession(sessionId: string, stats: any): SessionHi
 
   const historyId = `hist_${Date.now()}`;
   const detailedSnapshot = {
-    session: { ...session, status: 'closed' as const, outcome: stats.outcome, closedAt: now },
+    session: { ...sessionFigee, status: 'closed' as const, outcome: stats.outcome, closedAt: now },
+    stats,
     voters,
     voterStates: voterStatesList,
   };
@@ -1018,7 +1076,7 @@ export function archiveAndCloseSession(sessionId: string, stats: any): SessionHi
 
   saveDbToDisk();
 
-  return {
+  const history: SessionHistoryItem = {
     id: historyId,
     sessionId: session.id,
     referenceCode: session.referenceCode,
@@ -1040,6 +1098,8 @@ export function archiveAndCloseSession(sessionId: string, stats: any): SessionHi
     closedAt: now,
     detailedSnapshot: detailedSnapshot as any,
   };
+
+  return { history, stats };
 }
 
 export function getHistory(): SessionHistoryItem[] {
