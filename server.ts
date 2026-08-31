@@ -599,8 +599,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  // Écoute sur l'interface configurée. En production le service reste sur la boucle
+  // locale : seul le reverse proxy l'atteint, ce qui rend le filtrage par adresse
+  // impossible à contourner en tapant le port directement.
+  app.listen(PORT, HOTE, () => {
+    console.log(`MediVote écoute sur http://${HOTE}:${PORT}`);
   });
 }
 
