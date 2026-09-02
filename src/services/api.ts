@@ -6,7 +6,8 @@ import {
   PresenceStatus, 
   MeetingItem, 
   RealtimeNotification,
-  VoterList 
+  VoterList,
+  MotionTemplate
 } from '../types';
 
 /**
@@ -86,6 +87,35 @@ export const api = {
       body: JSON.stringify({ sessionId, voterId, presence, proxyToId }),
     });
     return verifier(res, 'Erreur lors du changement de présence');
+  },
+
+  /** Ouvre ou suspend le scrutin. Le président peut ouvrir avant l'heure annoncée. */
+  async definirOuvertureScrutin(sessionId: string, ouvert: boolean): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+    const res = await fetch('/api/session/ouverture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, ouvert }),
+    });
+    return verifier(res, "Impossible de changer l'ouverture du scrutin");
+  },
+
+  async getTemplates(): Promise<{ templates: MotionTemplate[] }> {
+    const res = await fetch('/api/templates');
+    return verifier(res, 'Erreur lors du chargement des modèles');
+  },
+
+  async saveTemplate(tpl: Partial<MotionTemplate> & { name: string; title: string }): Promise<{ template: MotionTemplate; templates: MotionTemplate[] }> {
+    const res = await fetch('/api/templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tpl),
+    });
+    return verifier(res, "Erreur lors de l'enregistrement du modèle");
+  },
+
+  async deleteTemplate(id: string): Promise<{ templates: MotionTemplate[] }> {
+    const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+    return verifier(res, 'Erreur lors de la suppression du modèle');
   },
 
   async resetVotes(sessionId: string): Promise<{ session: VotingSession; voters: Voter[] }> {

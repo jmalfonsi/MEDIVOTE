@@ -29,6 +29,10 @@ import {
   resetToDemoData,
   getSessionById,
   sauvegarderBase,
+  definirOuvertureScrutin,
+  getAllTemplates,
+  saveTemplate,
+  deleteTemplate,
 } from './server/db';
 import {
   authentifierAdmin,
@@ -346,7 +350,9 @@ async function startServer() {
 
       res.json({ session, voters });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      // Scrutin fermé ou séance inconnue : erreur de manipulation, pas panne serveur.
+      const conflit = /scrutin|clôturée|introuvable/i.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
     }
   });
 
@@ -374,6 +380,74 @@ async function startServer() {
       broadcastSSE(notif);
 
       res.json({ session, voters });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Ouverture et suspension du scrutin. Distinct de la séance active : c'est ce
+  // geste, et lui seul, qui rend les bulletins recevables.
+  app.post('/api/session/ouverture', (req, res) => {
+    try {
+      const { sessionId, ouvert } = req.body;
+      if (!sessionId || typeof ouvert !== 'boolean') {
+        return res.status(400).json({ error: 'Séance ou état d\'ouverture manquant' });
+      }
+      const session = definirOuvertureScrutin(sessionId, ouvert);
+      const voters = getAllVoters();
+      const meetings = getAllMeetings();
+
+      const notif = logEvent({
+        type: ouvert ? 'vote_started' : 'info',
+        title: ouvert ? 'Scrutin Ouvert' : 'Scrutin Suspendu',
+        message: ouvert
+          ? `Le scrutin est ouvert : les suffrages sont désormais recevables.`
+          : `Le scrutin est suspendu : plus aucun suffrage n'est accepté.`,
+        sessionId,
+        timestamp: new Date().toISOString()
+      });
+      broadcastSSE(notif);
+
+      res.json({ session, voters, meetings });
+    } catch (err: any) {
+      const conflit = /clôturée|introuvable/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  // Modèles de résolution, enregistrés par l'utilisateur
+  app.get('/api/templates', (req, res) => {
+    try {
+      res.json({ templates: getAllTemplates() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/templates/save', (req, res) => {
+    try {
+      const { name, title, motionText, majorityRequired, quorumPct, id } = req.body;
+      if (!name || !title) {
+        return res.status(400).json({ error: 'Un modèle doit au moins porter un nom et un intitulé.' });
+      }
+      const template = saveTemplate({
+        id,
+        name,
+        title,
+        motionText: motionText || '',
+        majorityRequired,
+        quorumPct,
+      });
+      res.json({ template, templates: getAllTemplates() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/templates/:id', (req, res) => {
+    try {
+      deleteTemplate(req.params.id);
+      res.json({ success: true, templates: getAllTemplates() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

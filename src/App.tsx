@@ -223,6 +223,25 @@ export default function App() {
   };
 
   // Reset votes
+  // Ouvre ou suspend le scrutin. Sans effacer aucun suffrage : c'est le sens même
+  // de la distinction entre séance active et scrutin ouvert.
+  const handleDefinirOuverture = useCallback(async (ouvert: boolean) => {
+    if (!session) return;
+    try {
+      const res = await api.definirOuvertureScrutin(session.id, ouvert);
+      setSession(res.session);
+      setVoters(res.voters);
+      if (res.meetings) setMeetings(res.meetings);
+    } catch (err: any) {
+      if (err instanceof SessionExpiree) {
+        setSessionOuverte(false);
+        setIsAdminPinModalOpen(true);
+      } else {
+        setError(err?.message || "Le scrutin n'a pas pu être ouvert.");
+      }
+    }
+  }, [session]);
+
   const handleResetVotes = async () => {
     if (!session) return;
     if (!window.confirm('Voulez-vous réinitialiser tous les votes de cette séance ?')) return;
@@ -598,6 +617,7 @@ export default function App() {
             onVote={handleVote}
             onSetPresence={handleSetPresence}
             onResetVotes={handleResetVotes}
+            onDefinirOuverture={handleDefinirOuverture}
             onCloseSession={() => setIsCloseModalOpen(true)}
             onOpenAdmin={() => setCurrentTab('admin')}
             onQuickVoteAllFor={handleQuickVoteAllFor}

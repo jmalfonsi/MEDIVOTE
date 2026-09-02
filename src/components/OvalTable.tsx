@@ -38,6 +38,8 @@ interface OvalTableProps {
   onSetPresence: (voterId: string, presence: PresenceStatus, proxyToId?: string | null) => void;
   onResetVotes: () => void;
   onCloseSession: () => void;
+  /** Ouvre ou suspend le scrutin, sans toucher aux suffrages déjà exprimés. */
+  onDefinirOuverture?: (ouvert: boolean) => void;
   onOpenAdmin: () => void;
   onQuickVoteAllFor: () => void;
   onSimulateRandomVotes: () => void;
@@ -53,6 +55,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   onSetPresence,
   onResetVotes,
   onCloseSession,
+  onDefinirOuverture,
   onOpenAdmin,
   onQuickVoteAllFor,
   onSimulateRandomVotes,
@@ -162,12 +165,17 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 </h1>
                 {session.status === 'closed' ? (
                   <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
-                    Scrutin Clôturé
+                    Scrutin clôturé
                   </span>
-                ) : (
+                ) : session.status === 'open' ? (
                   <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Scrutin Ouvert
+                    Scrutin ouvert
+                  </span>
+                ) : (
+                  <span className="text-[0.625rem] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200 font-semibold flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Scrutin fermé · séance de {session.scheduledTime}
                   </span>
                 )}
               </div>
@@ -203,7 +211,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 {stats.outcome === 'adopted' && 'MOTION ADOPTÉE'}
                 {stats.outcome === 'rejected' && 'MOTION REJETÉE'}
                 {stats.outcome === 'quorum_not_reached' && 'QUORUM NON ATTEINT'}
-                {stats.outcome === 'pending' && 'DÉLIBÉRATION EN COURS'}
+                {stats.outcome === 'pending' && (session.status === 'open' ? 'DÉLIBÉRATION EN COURS' : 'SCRUTIN NON OUVERT')}
               </span>
             </div>
 
@@ -256,22 +264,42 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               <span className="hidden sm:inline">Rapport PDF</span>
             </button>
 
-            {/* Close/Reopen Voting Action Buttons */}
+            {/* Ouverture, suspension et clôture du scrutin */}
             {session.status === 'open' ? (
+              <>
+                <button
+                  onClick={() => onDefinirOuverture?.(false)}
+                  title="Suspendre le scrutin : les suffrages déjà exprimés sont conservés"
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-200 shadow-2xs transition flex items-center gap-1"
+                >
+                  <Lock className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="hidden sm:inline">Suspendre</span>
+                </button>
+                <button
+                  onClick={onCloseSession}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Clôturer le vote</span>
+                </button>
+              </>
+            ) : session.status === 'draft' ? (
               <button
-                onClick={onCloseSession}
-                className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1"
+                onClick={() => onDefinirOuverture?.(true)}
+                title={`Ouvrir le scrutin maintenant (séance annoncée à ${session.scheduledTime})`}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1"
               >
-                <Lock className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Clôturer le vote</span>
+                <Unlock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Ouvrir le scrutin</span>
               </button>
             ) : (
               <button
                 onClick={onResetVotes}
+                title="Rouvrir la séance clôturée en remettant les suffrages à zéro"
                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1"
               >
                 <Unlock className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Rouvrir</span>
+                <span className="hidden sm:inline">Rouvrir (remise à zéro)</span>
               </button>
             )}
 
@@ -449,10 +477,13 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 Émargement & Pouvoirs
               </button>
 
+              {/* Ces raccourcis déposent de vrais bulletins : ils n'ont pas lieu
+                  d'être tant que le scrutin n'est pas ouvert. */}
               <button
                 onClick={onQuickVoteAllFor}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition flex items-center gap-1"
-                title="Tous les votants présents votent Pour"
+                disabled={session.status !== 'open'}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={session.status === 'open' ? 'Tous les votants présents votent Pour' : "Ouvrez d'abord le scrutin"}
               >
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
                 Tous Pour
@@ -460,8 +491,9 @@ export const OvalTable: React.FC<OvalTableProps> = ({
 
               <button
                 onClick={onSimulateRandomVotes}
-                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition flex items-center gap-1 shadow-xs"
-                title="Simuler des votes pour démonstration"
+                disabled={session.status !== 'open'}
+                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                title={session.status === 'open' ? 'Simuler des votes pour démonstration' : "Ouvrez d'abord le scrutin"}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 Simuler votes

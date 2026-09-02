@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Save, 
   Plus, 
@@ -38,8 +38,9 @@ import {
   ExternalLink,
   Monitor
 } from 'lucide-react';
-import { VotingSession, Voter, MajorityType, SessionStatus, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice } from '../types';
+import { VotingSession, Voter, MajorityType, SessionStatus, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice, MotionTemplate } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
+import { api } from '../services/api';
 import { generateSessionPdfReport } from '../utils/pdfExport';
 import { PREDEFINED_LOCATIONS } from '../constants/locations';
 
@@ -67,36 +68,6 @@ interface AdminPanelProps {
   onNavigateToTable: () => void;
 }
 
-const MEDICAL_TEMPLATES = [
-  {
-    title: "Acquisition Robot Chirurgical Da Vinci Xi & Salles Hybrides",
-    ref: "CME-2026-08/R1",
-    motion: "Article 4.2 - Approbation de l'investissement hospitalier prioritaire pour l'acquisition d'un système chirurgical assisté par robotique de dernière génération (Da Vinci Xi) et aménagement de 2 salles hybrides au bloc opératoire central pour un montant total de 2,4 M€ amorti sur 7 exercices.",
-    majority: 'simple' as MajorityType,
-    quorum: 0,
-  },
-  {
-    title: "Protocole Hospitalier d'Épargne Antibiotique & Prévention BMR",
-    ref: "CME-2026-08/R2",
-    motion: "Article 2.1 - Validation du nouveau protocole d'antibiothérapie probabiliste en réanimation et soins continus, avec restriction d'accès aux molécules de réserve (Céfidérocol, Ceftazidime-avibactam) soumise à avis infectiologique obligatoire sous 24h.",
-    majority: 'simple' as MajorityType,
-    quorum: 0,
-  },
-  {
-    title: "Création d'une Unité Post-Urgences de 16 Lits (UAPU)",
-    ref: "CME-2026-08/R3",
-    motion: "Article 7.4 - Vote d'ouverture de l'Unité d'Admission Post-Urgences (UAPU) comprenant le redéploiement de 8 postes infirmiers (IDE), 4 aides-soignants et le recrutement de 2 praticiens hospitaliers urgentistes pour fluidifier les admissions en période hivernale.",
-    majority: 'two_thirds' as MajorityType,
-    quorum: 50,
-  },
-  {
-    title: "Modification des Statuts de la Commission Médicale d'Établissement (CME)",
-    ref: "CME-2026-08/R4",
-    motion: "Article 1.0 - Révision générale du règlement intérieur de la Commission Médicale d'Établissement, instaurant le vote électronique sécurisé pour toutes les délibérations budgétaires et la nomination des chefs de pôle clinique.",
-    majority: 'unanimous' as MajorityType,
-    quorum: 66,
-  }
-];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   session,
@@ -157,6 +128,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Bulk Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // Modèles de résolution propres à l'organisme, conservés en base.
+  const [templates, setTemplates] = useState<MotionTemplate[]>([]);
+  useEffect(() => {
+    api.getTemplates()
+      .then(r => setTemplates(r.templates || []))
+      .catch(() => setTemplates([]));
+  }, []);
   const [importText, setImportText] = useState('');
   const [importListCode, setImportListCode] = useState('CA');
 
@@ -206,12 +185,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsMeetingFormOpen(true);
   };
 
-  const handleApplyTemplate = (tpl: typeof MEDICAL_TEMPLATES[0]) => {
+  const handleApplyTemplate = (tpl: MotionTemplate) => {
     setTitle(tpl.title);
-    setReferenceCode(tpl.ref);
-    setMotionText(tpl.motion);
-    setMajorityRequired(tpl.majority);
-    setQuorumPct(tpl.quorum);
+    setMotionText(tpl.motionText);
+    setMajorityRequired(tpl.majorityRequired);
+    setQuorumPct(tpl.quorumPct ?? 0);
+  };
+
+  // Enregistre la résolution en cours de saisie comme modèle réutilisable.
+  const handleEnregistrerModele = async () => {
+    const nom = window.prompt(
+      'Sous quel nom enregistrer ce modèle ?',
+      title.slice(0, 60) || 'Nouveau modèle'
+    );
+    if (!nom) return;
+    try {
+      const { templates: liste } = await api.saveTemplate({
+        name: nom,
+        title,
+        motionText,
+        majorityRequired,
+        quorumPct,
+      });
+      setTemplates(liste);
+    } catch (err: any) {
+      window.alert(err?.message || "Le modèle n'a pas pu être enregistré.");
+    }
+  };
+
+  const handleSupprimerModele = async (tpl: MotionTemplate) => {
+    if (!window.confirm(`Supprimer définitivement le modèle « ${tpl.name} » ?`)) return;
+    try {
+      const { templates: liste } = await api.deleteTemplate(tpl.id);
+      setTemplates(liste);
+    } catch (err: any) {
+      window.alert(err?.message || "Le modèle n'a pas pu être supprimé.");
+    }
   };
 
   const handleToggleAttendee = (voterId: string) => {
@@ -542,9 +551,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <Lock className="w-3 h-3 text-slate-300" />
                       SÉANCE ARCHIVÉE & SCELLÉE
                     </span>
-                  ) : (
+                  ) : session.status === 'open' ? (
                     <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-mono text-xs font-bold">
-                      SÉANCE EN DIRECT SUR LA TABLE
+                      SCRUTIN OUVERT — VOTE EN COURS
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-md bg-sky-600 text-white font-mono text-xs font-bold">
+                      SÉANCE AFFICHÉE — SCRUTIN PAS ENCORE OUVERT
                     </span>
                   )}
                   <span className="text-xs text-slate-700 font-mono font-semibold">{session.referenceCode}</span>
@@ -679,7 +692,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }`}
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>En cours (Active)</span>
+                <span>Séance active</span>
                 <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'active' ? 'bg-emerald-700 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
                   {meetings.filter(m => m.isActiveMeeting && m.status !== 'closed').length}
                 </span>
@@ -727,7 +740,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 })
                 .map((m) => {
                   const isClosed = m.status === 'closed';
+                  // « Séance active » = celle qui s'affiche sur la table.
+                  // « Scrutin ouvert » = celle qui accepte des bulletins.
+                  // Une séance programmée à 15 h n'est pas en cours à 9 h : elle est
+                  // seulement active, jusqu'à ce que le président ouvre le scrutin.
                   const isActive = m.isActiveMeeting && !isClosed;
+                  const scrutinOuvert = m.status === 'open' && !isClosed;
+                  const heureDepassee =
+                    !isClosed &&
+                    !scrutinOuvert &&
+                    new Date(`${m.scheduledDate}T${m.scheduledTime || '00:00'}`).getTime() < Date.now();
                   const isPending = !isActive && !isClosed;
 
                   return (
@@ -750,9 +772,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* Active ribbon prompt */}
                       {isActive && (
                         <div className="absolute -top-3 left-4 right-4 flex items-center justify-between">
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[0.625rem] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5">
+                          <span className={`px-2.5 py-0.5 rounded-full text-white text-[0.625rem] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5 ${scrutinOuvert ? 'bg-emerald-600' : 'bg-sky-600'}`}>
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                            Séance Active en direct
+                            {scrutinOuvert ? 'Vote en cours' : 'Séance affichée sur la table'}
                           </span>
                           <span className="text-[0.625rem] text-emerald-800 font-semibold bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition">
                             Cliquer pour ouvrir la table ↗
@@ -777,15 +799,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <Lock className="w-3 h-3 text-slate-600" />
                               ARCHIVÉE & SCELLÉE
                             </span>
-                          ) : isActive ? (
+                          ) : scrutinOuvert ? (
                             <span className="text-[0.625rem] font-bold text-emerald-900 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-emerald-400 shadow-2xs">
                               <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-                              EN COURS (1 SEULE ACTIVE)
+                              SCRUTIN OUVERT
+                            </span>
+                          ) : isActive ? (
+                            <span className="text-[0.625rem] font-bold text-sky-900 bg-sky-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-sky-300 shadow-2xs">
+                              <Monitor className="w-3 h-3 text-sky-700" />
+                              SÉANCE ACTIVE · SCRUTIN FERMÉ
                             </span>
                           ) : (
                             <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-full flex items-center gap-1 border border-amber-300">
                               <Hourglass className="w-3 h-3 text-amber-700" />
-                              EN ATTENTE
+                              PROGRAMMÉE
+                            </span>
+                          )}
+
+                          {heureDepassee && isActive && (
+                            <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-50 px-2 py-1 rounded-full border border-amber-300">
+                              heure passée
                             </span>
                           )}
                         </div>
@@ -1812,27 +1845,58 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </button>
             </div>
 
-            {/* Template Presets */}
+            {/* Modèles de résolution enregistrés par l'organisme */}
             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  Modèles types pré-remplis (Hôpital & CME) :
+                  Vos modèles de résolution
                 </span>
+                <button
+                  type="button"
+                  onClick={handleEnregistrerModele}
+                  disabled={!title.trim()}
+                  title={title.trim() ? 'Enregistrer la saisie en cours comme modèle' : "Renseignez d'abord un intitulé"}
+                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-xs font-semibold text-slate-700 hover:text-emerald-800 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  Enregistrer comme modèle
+                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {MEDICAL_TEMPLATES.map((tpl, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleApplyTemplate(tpl)}
-                    className="p-2 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 text-left text-xs transition"
-                  >
-                    <strong className="text-slate-800 block truncate">{tpl.title}</strong>
-                    <span className="text-[0.625rem] text-slate-500 font-mono">{tpl.ref}</span>
-                  </button>
-                ))}
-              </div>
+
+              {templates.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  Aucun modèle pour l'instant. Rédigez une résolution ci-dessous, puis enregistrez-la
+                  comme modèle pour la réutiliser aux séances suivantes.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {templates.map(tpl => (
+                    <div
+                      key={tpl.id}
+                      className="p-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-xs transition flex items-start justify-between gap-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleApplyTemplate(tpl)}
+                        className="text-left min-w-0 flex-1"
+                        title="Reprendre ce modèle"
+                      >
+                        <strong className="text-slate-800 block truncate">{tpl.name}</strong>
+                        <span className="text-[0.625rem] text-slate-500 block truncate">{tpl.title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerModele(tpl)}
+                        aria-label={`Supprimer le modèle ${tpl.name}`}
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleSaveMeetingSubmit} className="space-y-4">

@@ -838,7 +838,9 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
 
   if (existing.length && existing[0].values.length) {
     db.run(
-      `UPDATE sessions SET reference_code=?, title=?, motion_text=?, scheduled_date=?, scheduled_time=?, location=?, status=?, majority_required=?, quorum_pct=?, is_secret=?, outcome=?, closed_at=?, selected_attendee_ids=COALESCE(?, selected_attendee_ids), active_list_code=COALESCE(?, active_list_code) WHERE id=?`,
+      // Le statut n'est modifié que s'il est explicitement transmis : corriger l'ordre
+      // du jour d'une séance dont le scrutin est ouvert ne doit pas le refermer.
+      `UPDATE sessions SET reference_code=?, title=?, motion_text=?, scheduled_date=?, scheduled_time=?, location=?, status=COALESCE(?, status), majority_required=?, quorum_pct=?, is_secret=?, outcome=?, closed_at=?, selected_attendee_ids=COALESCE(?, selected_attendee_ids), active_list_code=COALESCE(?, active_list_code) WHERE id=?`,
       [
         sessionData.referenceCode || 'CA-2026-08',
         sessionData.title || 'Ordre du jour',
@@ -846,7 +848,7 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
         sessionData.scheduledDate || now.split('T')[0],
         sessionData.scheduledTime || '14:30',
         sessionData.location || 'Salle du Conseil',
-        sessionData.status || 'open',
+        sessionData.status || null,
         sessionData.majorityRequired || 'simple',
         sessionData.quorumPct ?? 0,
         sessionData.isSecret ? 1 : 0,
@@ -873,7 +875,7 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
         sessionData.scheduledDate || now.split('T')[0],
         sessionData.scheduledTime || '14:30',
         sessionData.location || 'Salle du Conseil',
-        sessionData.status || 'open',
+        sessionData.status || 'draft',
         sessionData.majorityRequired || 'simple',
         sessionData.quorumPct ?? 0,
         sessionData.isSecret ? 1 : 0,
@@ -938,8 +940,38 @@ export function duplicateMeeting(id: string): VotingSession {
   });
 }
 
+/**
+ * Ouvre ou suspend le scrutin d'une séance.
+ *
+ * « Séance active » et « scrutin ouvert » sont deux choses distinctes : la séance
+ * active est celle qui s'affiche sur la table, le scrutin ouvert est celui qui
+ * accepte des bulletins. L'ouverture est un geste délibéré du président — il peut
+ * ouvrir avant l'heure annoncée s'il le décide, l'heure n'est qu'un repère.
+ */
+export function definirOuvertureScrutin(sessionId: string, ouvert: boolean): VotingSession | null {
+  const seance = getSessionById(sessionId);
+  if (!seance) throw new Error('Séance introuvable.');
+  if (seance.status === 'closed') {
+    throw new Error('Cette séance est clôturée : son scrutin ne peut plus être rouvert.');
+  }
+  db.run("UPDATE sessions SET status=? WHERE id=?", [ouvert ? 'open' : 'draft', sessionId]);
+  saveDbToDisk();
+  return getSessionById(sessionId);
+}
+
 // Live Session state modifiers
 export function updateVoterVote(sessionId: string, voterId: string, vote: string): VotingSession | null {
+  // Un suffrage n'est recevable que pendant que le scrutin est ouvert. Une séance
+  // seulement programmée, ou déjà clôturée, ne peut pas recevoir de bulletin.
+  const seance = getSessionById(sessionId);
+  if (!seance) throw new Error('Séance introuvable.');
+  if (seance.status === 'closed') {
+    throw new Error('Cette séance est clôturée : aucun suffrage ne peut plus être enregistré.');
+  }
+  if (seance.status !== 'open') {
+    throw new Error("Le scrutin n'est pas ouvert. Ouvrez-le depuis la table avant de faire voter.");
+  }
+
   const now = new Date().toISOString();
   db.run(
     `INSERT INTO session_voter_states (session_id, voter_id, presence, vote_choice, voted_at)

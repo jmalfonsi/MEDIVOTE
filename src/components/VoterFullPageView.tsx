@@ -95,7 +95,8 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
 
   // Confetti when current voter casts a 'for' vote or motion is adopted
   const handleCastVote = (choice: VoteChoice) => {
-    if (!session || !currentVoter || session.status === 'closed') return;
+    // Le serveur refuserait le bulletin ; autant ne pas le proposer.
+    if (!session || !currentVoter || session.status !== 'open') return;
     onVote(currentVoter.id, choice);
 
     if (choice === 'for') {
