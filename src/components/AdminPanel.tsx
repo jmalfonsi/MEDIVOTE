@@ -38,7 +38,7 @@ import {
   ExternalLink,
   Monitor
 } from 'lucide-react';
-import { VotingSession, Voter, MajorityType, SessionStatus, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice, MotionTemplate } from '../types';
+import { VotingSession, Voter, MajorityType, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice, MotionTemplate } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { api } from '../services/api';
 import { generateSessionPdfReport } from '../utils/pdfExport';
@@ -110,7 +110,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [majorityRequired, setMajorityRequired] = useState<MajorityType>('simple');
   const [quorumPct, setQuorumPct] = useState<number>(0); // Default to 0 (No minimum quorum)
   const [isSecret, setIsSecret] = useState<boolean>(false);
-  const [status, setStatus] = useState<SessionStatus>('open');
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>(voters.map(v => v.id));
 
   // Voter editing state
@@ -165,7 +164,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setMajorityRequired(m.majorityRequired);
       setQuorumPct(m.quorumPct ?? 0);
       setIsSecret(m.isSecret);
-      setStatus(m.status);
       setSelectedAttendeeIds(session?.id === m.id && session.selectedAttendeeIds ? session.selectedAttendeeIds : voters.map(v => v.id));
     } else {
       // New meeting blank - Quorum defaults to 0%
@@ -179,7 +177,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setMajorityRequired('simple');
       setQuorumPct(0); // Default: Pas de quorum minimum
       setIsSecret(false);
-      setStatus('open');
       setSelectedAttendeeIds(voters.filter(v => v.isActive).map(v => v.id));
     }
     setIsMeetingFormOpen(true);
@@ -264,7 +261,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           majorityRequired,
           quorumPct: Number(quorumPct),
           isSecret,
-          status,
           attendeeIds: selectedAttendeeIds,
         });
         setSuccessMessage('Séance mise à jour.');
@@ -279,10 +275,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           majorityRequired,
           quorumPct: Number(quorumPct),
           isSecret,
-          status,
           attendeeIds: selectedAttendeeIds,
         });
-        setSuccessMessage('Nouvelle séance créée.');
+        // Une séance nouvelle est programmée, pas ouverte : le scrutin s'ouvre
+        // depuis la table, quand le président le décide.
+        setSuccessMessage('Séance créée. Son scrutin reste fermé jusqu\'à son ouverture depuis la table.');
       }
       setIsMeetingFormOpen(false);
       setTimeout(() => setSuccessMessage(null), 4000);

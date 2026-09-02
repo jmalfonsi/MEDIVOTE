@@ -108,7 +108,7 @@ const INITIAL_MEETINGS = [
     date: new Date().toISOString().split('T')[0],
     time: '14:30',
     location: 'Saint-Victor',
-    status: 'open' as const,
+    status: 'draft' as const,
     majority: 'simple' as const,
     quorum: 0, // Default: no minimum quorum
     isSecret: false,
@@ -198,7 +198,7 @@ export async function initDatabase(): Promise<Database> {
       scheduled_date TEXT NOT NULL,
       scheduled_time TEXT NOT NULL,
       location TEXT,
-      status TEXT DEFAULT 'open',
+      status TEXT DEFAULT 'draft',
       majority_required TEXT DEFAULT 'simple',
       quorum_pct REAL DEFAULT 0.0,
       is_secret INTEGER DEFAULT 0,
@@ -844,6 +844,13 @@ export function switchActiveMeeting(meetingId: string): VotingSession | null {
   return getActiveSession();
 }
 
+/**
+ * Crée ou met à jour l'ordre du jour d'une séance.
+ *
+ * Le statut transmis par l'appelant est délibérément ignoré : une séance naît
+ * fermée au vote, et seule `definirOuvertureScrutin` — un geste explicite de
+ * l'administrateur — l'ouvre. L'heure programmée n'est qu'un repère affiché.
+ */
 export function createOrUpdateSession(sessionData: Partial<VotingSession> & { attendeeIds?: string[] }): VotingSession {
   const id = sessionData.id || `session_${Date.now()}`;
   const now = new Date().toISOString();
@@ -857,9 +864,9 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
 
   if (existing.length && existing[0].values.length) {
     db.run(
-      // Le statut n'est modifié que s'il est explicitement transmis : corriger l'ordre
-      // du jour d'une séance dont le scrutin est ouvert ne doit pas le refermer.
-      `UPDATE sessions SET reference_code=?, title=?, motion_text=?, scheduled_date=?, scheduled_time=?, location=?, status=COALESCE(?, status), majority_required=?, quorum_pct=?, is_secret=?, outcome=?, closed_at=?, selected_attendee_ids=COALESCE(?, selected_attendee_ids), active_list_code=COALESCE(?, active_list_code) WHERE id=?`,
+      // Le statut n'est jamais touché ici. Enregistrer un ordre du jour n'ouvre ni
+      // ne referme un scrutin : seule l'ouverture explicite le fait.
+      `UPDATE sessions SET reference_code=?, title=?, motion_text=?, scheduled_date=?, scheduled_time=?, location=?, majority_required=?, quorum_pct=?, is_secret=?, outcome=?, closed_at=?, selected_attendee_ids=COALESCE(?, selected_attendee_ids), active_list_code=COALESCE(?, active_list_code) WHERE id=?`,
       [
         sessionData.referenceCode || 'CA-2026-08',
         sessionData.title || 'Ordre du jour',
@@ -867,7 +874,6 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
         sessionData.scheduledDate || now.split('T')[0],
         sessionData.scheduledTime || '14:30',
         sessionData.location || 'Salle du Conseil',
-        sessionData.status || null,
         sessionData.majorityRequired || 'simple',
         sessionData.quorumPct ?? 0,
         sessionData.isSecret ? 1 : 0,
@@ -894,7 +900,9 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
         sessionData.scheduledDate || now.split('T')[0],
         sessionData.scheduledTime || '14:30',
         sessionData.location || 'Salle du Conseil',
-        sessionData.status || 'draft',
+        // Une séance nouvelle n'est jamais ouverte au vote, quelle que soit
+        // l'heure annoncée : l'heure est un repère, pas un déclencheur.
+        'draft',
         sessionData.majorityRequired || 'simple',
         sessionData.quorumPct ?? 0,
         sessionData.isSecret ? 1 : 0,
@@ -924,13 +932,16 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
 export function deleteMeeting(id: string): boolean {
   db.run("DELETE FROM sessions WHERE id = ?", [id]);
   db.run("DELETE FROM session_voter_states WHERE session_id = ?", [id]);
-  
-  const remaining = getAllMeetings();
-  if (remaining.length > 0) {
-    const hasActive = remaining.some(m => m.isActiveMeeting);
-    if (!hasActive) {
-      switchActiveMeeting(remaining[0].id);
-    }
+  db.run("DELETE FROM jetons_vote WHERE session_id = ?", [id]);
+
+  // Si la séance supprimée était celle affichée sur la table, on désigne une
+  // remplaçante — mais seulement parmi les séances encore ouvrables. Une séance
+  // clôturée est scellée : la réactiver échouerait, et l'échec surviendrait
+  // APRÈS la suppression, laissant l'écran et le registre en désaccord.
+  const restantes = getAllMeetings();
+  if (restantes.length > 0 && !restantes.some(m => m.isActiveMeeting)) {
+    const remplacante = restantes.find(m => m.status !== 'closed');
+    if (remplacante) switchActiveMeeting(remplacante.id);
   }
 
   saveDbToDisk();
@@ -1038,7 +1049,7 @@ export function updateVoterPresence(sessionId: string, voterId: string, presence
   return getActiveSession();
 }
 
-export function resetSessionVotes(sessionId: string): void {
+export function resetSessionVotes(sessionId: string): VotingSession | null {
   db.run(
     `UPDATE session_voter_states SET vote_choice='pending', voted_at=NULL WHERE session_id=?`,
     [sessionId]
@@ -1046,11 +1057,14 @@ export function resetSessionVotes(sessionId: string): void {
   // Les suffrages repartent de zéro : les liens de vote redeviennent utilisables,
   // sinon un membre ayant déjà voté ne pourrait plus se prononcer sur le nouveau tour.
   db.run(`UPDATE jetons_vote SET utilise_le=NULL WHERE session_id=?`, [sessionId]);
+  // La remise à zéro efface les suffrages, elle n'ouvre rien : c'est à
+  // l'administrateur de rouvrir le scrutin s'il veut un nouveau tour.
   db.run(
-    `UPDATE sessions SET status='open', outcome='pending', closed_at=NULL WHERE id=?`,
+    `UPDATE sessions SET status='draft', outcome='pending', closed_at=NULL WHERE id=?`,
     [sessionId]
   );
   saveDbToDisk();
+  return getSessionById(sessionId);
 }
 
 /**

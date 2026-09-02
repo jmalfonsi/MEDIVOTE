@@ -18,6 +18,24 @@ couvertes par les tests de `src/utils/__tests__/votingMath.test.ts` :
 Le résultat officiel est **recalculé par le serveur** à la clôture, à partir des
 bulletins en base. Ce que le navigateur envoie n'entre pas dans le procès-verbal.
 
+## Ouverture du scrutin
+
+Une séance **ne s'ouvre jamais toute seule**. L'heure programmée est un repère
+affiché, pas un déclencheur : seule une ouverture explicite depuis la table rend
+les bulletins recevables, et le président peut ouvrir avant l'heure annoncée s'il
+le décide.
+
+« Séance affichée sur la table » et « scrutin ouvert » sont donc deux états
+distincts. Au niveau des données, `createOrUpdateSession` **ignore** le statut
+qu'on lui transmet : une séance naît fermée au vote, et seule
+`definirOuvertureScrutin` l'ouvre ou la suspend. Aucun autre chemin — création,
+correction de l'ordre du jour, duplication, changement de séance affichée,
+remise à zéro des suffrages — ne peut ouvrir un scrutin par effet de bord.
+`server/__tests__/ouvertureScrutin.test.ts` le vérifie chemin par chemin.
+
+Corollaire : une remise à zéro referme le scrutin. Elle efface les suffrages,
+elle ne décide pas d'un nouveau tour.
+
 ## Configuration
 
 Copier `.env.example` en `.env` et renseigner au minimum `MEDIVOTE_ADMIN_PIN` :

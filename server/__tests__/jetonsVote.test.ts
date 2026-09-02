@@ -140,8 +140,15 @@ describe('liens de vote nominatifs', () => {
     db.definirOuvertureScrutin(sessionId, true);
     const lien = db.jetonVotePour(sessionId, membres[0].id);
     db.voterAvecJeton(lien.jeton, 'for');
+
     db.resetSessionVotes(sessionId);
+    // La remise à zéro referme le scrutin : c'est l'administrateur qui décide
+    // d'un nouveau tour, pas la remise à zéro elle-même.
+    expect(() => db.voterAvecJeton(lien.jeton, 'against')).toThrow(/pas encore ouvert/i);
+
+    db.definirOuvertureScrutin(sessionId, true);
     expect(() => db.voterAvecJeton(lien.jeton, 'against')).not.toThrow();
+    expect(db.getSessionById(sessionId)!.voterStates[membres[0].id].vote).toBe('against');
   });
 
   it('ne livre au téléphone que ce qui concerne le membre', () => {

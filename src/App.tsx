@@ -315,7 +315,10 @@ export default function App() {
 
   const handleResetVotes = async () => {
     if (!session) return;
-    if (!window.confirm('Voulez-vous réinitialiser tous les votes de cette séance ?')) return;
+    if (!window.confirm(
+      'Voulez-vous réinitialiser tous les suffrages de cette séance ?\n\n' +
+      'Le scrutin sera refermé : il faudra le rouvrir pour un nouveau tour.'
+    )) return;
     try {
       const res = await api.resetVotes(session.id);
       setSession(res.session);

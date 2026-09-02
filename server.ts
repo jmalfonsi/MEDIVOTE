@@ -348,7 +348,7 @@ async function startServer() {
       const notif = logEvent({
         type: 'meeting_created',
         title: 'Nouvelle Réunion Créée',
-        message: `La délibération "${created.title}" (${created.referenceCode}) a été planifiée pour le ${created.scheduledDate} à ${created.scheduledTime}.`,
+        message: `La délibération "${created.title}" (${created.referenceCode}) est planifiée pour le ${created.scheduledDate} à ${created.scheduledTime}. Son scrutin reste fermé tant qu'il n'est pas ouvert depuis la table.`,
         sessionId: created.id,
         timestamp: new Date().toISOString()
       });
@@ -439,10 +439,17 @@ async function startServer() {
       const voters = getAllVoters();
       const meetings = getAllMeetings();
 
+      // Enregistrer l'ordre du jour ne change pas l'état du scrutin : le message
+      // se contente de rappeler celui-ci, il n'annonce aucune ouverture.
+      const etatScrutin = saved.status === 'open'
+        ? 'scrutin ouvert'
+        : saved.status === 'closed'
+          ? 'séance clôturée'
+          : 'scrutin non ouvert';
       const notif = logEvent({
-        type: 'vote_started',
-        title: 'Ordre du Jour & Scrutin Mis à Jour',
-        message: `Texte de vote : "${saved.title}" (${saved.referenceCode}) - Statut : ${saved.status === 'open' ? 'Ouvert au vote' : saved.status}`,
+        type: 'info',
+        title: 'Ordre du Jour Mis à Jour',
+        message: `Texte soumis au vote : "${saved.title}" (${saved.referenceCode}) — ${etatScrutin}.`,
         sessionId: saved.id,
         timestamp: new Date().toISOString()
       });
@@ -627,7 +634,7 @@ async function startServer() {
       const notif = logEvent({
         type: 'vote_reset',
         title: 'Scrutin Réinitialisé',
-        message: `Les suffrages de la séance ont été remis à zéro par l'administrateur.`,
+        message: `Les suffrages de la séance ont été remis à zéro par l'administrateur. Le scrutin est refermé : il devra être rouvert pour un nouveau tour.`,
         sessionId,
         timestamp: new Date().toISOString()
       });
