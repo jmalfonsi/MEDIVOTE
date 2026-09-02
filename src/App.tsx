@@ -50,6 +50,9 @@ export default function App() {
    * Le choix est propre au poste et survit à un rechargement — en séance, on ne
    * veut pas avoir à le refaire après un rafraîchissement malencontreux.
    */
+  // Incrémenté pour relancer un chargement après une reprise de session.
+  const [relance, setRelance] = useState<number>(0);
+
   const [affichageSimplifie, setAffichageSimplifie] = useState<boolean>(() => {
     try {
       return localStorage.getItem('medivote.affichage') === 'simplifie';
@@ -127,6 +130,14 @@ export default function App() {
       }
     } catch (err: any) {
       if (err instanceof SessionExpiree) {
+        // La session de la journée a expiré. Si le poste est reconnu, on la rouvre
+        // sans rien demander : en séance, une invite de code est une interruption.
+        const repris = await auth.estConnecte().catch(() => false);
+        if (repris) {
+          setLoading(false);
+          setRelance(n => n + 1);
+          return;
+        }
         setSessionOuverte(false);
         setIsAdminPinModalOpen(true);
         setError(null);
@@ -137,7 +148,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedVoterId, sessionOuverte]);
+  }, [selectedVoterId, sessionOuverte, relance]);
 
   useEffect(() => {
     loadData();
@@ -606,6 +617,8 @@ export default function App() {
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
         affichageSimplifie={affichageSimplifie}
         onToggleAffichageSimplifie={() => setAffichageSimplifie(v => !v)}
+        onDefinirOuverture={handleDefinirOuverture}
+        onCloseSession={() => setIsCloseModalOpen(true)}
         onClearNotifications={handleClearNotifications}
         onSwitchMeeting={handleSwitchMeeting}
         onResetVotes={handleResetVotes}

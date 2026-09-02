@@ -87,6 +87,9 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
           <p className="text-xs text-slate-500 mt-1.5">
             Entrez le code administrateur pour ouvrir la table de vote.
           </p>
+          <p className="text-[0.6875rem] text-slate-400 mt-1.5">
+            Ce poste restera reconnu sept jours : le code ne vous sera pas redemandé.
+          </p>
         </div>
 
         {/* PIN boxes */}

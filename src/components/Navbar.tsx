@@ -19,7 +19,9 @@ import {
   Maximize2,
   Minimize2,
   Eye,
-  EyeOff
+  EyeOff,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { VotingSession, VoteStatistics, MeetingItem, RealtimeNotification } from '../types';
 import { NotificationCenter } from './NotificationCenter';
@@ -34,6 +36,9 @@ interface NavbarProps {
   soundEnabled: boolean;
   isFullscreenTable?: boolean;
   onToggleFullscreenTable?: () => void;
+  /** Commandes du scrutin, remontées ici quand la table occupe tout l'écran. */
+  onDefinirOuverture?: (ouvert: boolean) => void;
+  onCloseSession?: () => void;
   onToggleSound: () => void;
   onClearNotifications: () => void;
   onSwitchMeeting: (meetingId: string) => Promise<void>;
@@ -53,6 +58,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   soundEnabled,
   isFullscreenTable = false,
   onToggleFullscreenTable,
+  onDefinirOuverture,
+  onCloseSession,
   onToggleSound,
   onClearNotifications,
   onSwitchMeeting,
@@ -224,6 +231,41 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Real-time Notification Center & Fullscreen / Action Controls */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
           
+          {/* En plein écran, le bandeau d'état n'existe plus : les commandes du
+              scrutin doivent rester atteignables sans quitter l'affichage. */}
+          {isFullscreenTable && currentTab === 'table' && session && session.status !== 'closed' && (
+            <div className="flex items-center gap-1.5">
+              {session.status === 'open' ? (
+                <>
+                  <button
+                    onClick={() => onDefinirOuverture?.(false)}
+                    title="Suspendre le scrutin : les suffrages déjà exprimés sont conservés"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold transition shadow-2xs"
+                  >
+                    <Lock className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="hidden lg:inline">Suspendre</span>
+                  </button>
+                  <button
+                    onClick={onCloseSession}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-2xs"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span className="hidden lg:inline">Clôturer le vote</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => onDefinirOuverture?.(true)}
+                  title={`Ouvrir le scrutin maintenant (séance annoncée à ${session.scheduledTime})`}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Ouvrir le scrutin</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* TABLE PLEIN ÉCRAN BUTTON */}
           {onToggleFullscreenTable && (
             <button

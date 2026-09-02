@@ -254,6 +254,14 @@ export async function initDatabase(): Promise<Database> {
       outcome TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS appareils_confiance (
+      empreinte TEXT PRIMARY KEY,
+      libelle TEXT,
+      cree_le TEXT NOT NULL,
+      expire_le TEXT NOT NULL,
+      dernier_usage TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS motion_templates (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1241,6 +1249,58 @@ export function clearEvents(): boolean {
   db.run("DELETE FROM events_log");
   saveDbToDisk();
   return true;
+}
+
+/*
+ * Appareils de confiance.
+ *
+ * Le poste de séance ne doit pas réclamer le code à chaque ouverture, ni après
+ * chaque redémarrage du service. On y dépose donc un jeton valable sept jours ;
+ * la base n'en conserve que l'empreinte, jamais le jeton lui-même, de sorte
+ * qu'une lecture de la base ne permette pas de se faire passer pour l'appareil.
+ * L'échéance glisse à chaque usage : un poste utilisé chaque semaine ne
+ * redemande jamais le code, un poste oublié cesse d'être reconnu.
+ */
+export function enregistrerAppareil(empreinte: string, libelle: string, joursValidite: number): void {
+  const maintenant = new Date();
+  const expire = new Date(maintenant.getTime() + joursValidite * 24 * 60 * 60 * 1000);
+  db.run(
+    `INSERT INTO appareils_confiance (empreinte, libelle, cree_le, expire_le, dernier_usage)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(empreinte) DO UPDATE SET expire_le=?, dernier_usage=?`,
+    [
+      empreinte, libelle, maintenant.toISOString(), expire.toISOString(), maintenant.toISOString(),
+      expire.toISOString(), maintenant.toISOString(),
+    ]
+  );
+  saveDbToDisk();
+}
+
+/** Renvoie vrai si l'empreinte correspond à un appareil encore reconnu, et prolonge son échéance. */
+export function verifierAppareil(empreinte: string, joursValidite: number): boolean {
+  const res = db.exec("SELECT expire_le FROM appareils_confiance WHERE empreinte = ?", [empreinte]);
+  if (!res.length || !res[0].values.length) return false;
+
+  const expire = new Date(String(res[0].values[0][0]));
+  if (Number.isNaN(expire.getTime()) || expire.getTime() <= Date.now()) {
+    db.run("DELETE FROM appareils_confiance WHERE empreinte = ?", [empreinte]);
+    saveDbToDisk();
+    return false;
+  }
+
+  enregistrerAppareil(empreinte, '', joursValidite);
+  return true;
+}
+
+export function oublierAppareil(empreinte: string): void {
+  db.run("DELETE FROM appareils_confiance WHERE empreinte = ?", [empreinte]);
+  saveDbToDisk();
+}
+
+/** Retire les appareils dont l'échéance est passée. Appelé au démarrage. */
+export function purgerAppareilsExpires(): void {
+  db.run("DELETE FROM appareils_confiance WHERE expire_le <= ?", [new Date().toISOString()]);
+  saveDbToDisk();
 }
 
 // Motion Templates Management

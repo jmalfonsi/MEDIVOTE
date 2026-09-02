@@ -31,28 +31,86 @@ async function verifier(res: Response, messageErreur: string): Promise<any> {
   return res.json();
 }
 
+const CLE_APPAREIL = 'medivote.appareil';
+
+function lireJetonAppareil(): string | null {
+  try {
+    return localStorage.getItem(CLE_APPAREIL);
+  } catch (_) {
+    return null;
+  }
+}
+
+function ecrireJetonAppareil(jeton: string | null): void {
+  try {
+    if (jeton) localStorage.setItem(CLE_APPAREIL, jeton);
+    else localStorage.removeItem(CLE_APPAREIL);
+  } catch (_) {
+    // Navigateur qui refuse le stockage : le poste redemandera le code.
+  }
+}
+
 export const auth = {
-  /** Échange le code administrateur contre une session serveur. */
-  async connexionAdmin(pin: string): Promise<void> {
+  /**
+   * Échange le code administrateur contre une session serveur. Par défaut le poste
+   * est mémorisé pour une semaine, afin de ne pas réclamer le code à chaque
+   * ouverture ni après un redémarrage du service.
+   */
+  async connexionAdmin(pin: string, memoriserAppareil: boolean = true): Promise<void> {
     const res = await fetch('/api/auth/admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({
+        pin,
+        memoriserAppareil,
+        libelleAppareil: navigator.userAgent.slice(0, 80),
+      }),
     });
     if (!res.ok) {
       const detail = await res.json().catch(() => null);
       throw new Error(detail?.error || 'Code administrateur incorrect.');
     }
+    const donnees = await res.json().catch(() => null);
+    if (donnees?.jetonAppareil) ecrireJetonAppareil(donnees.jetonAppareil);
   },
 
-  /** Indique si une session administrateur est encore ouverte sur ce poste. */
+  /**
+   * Indique si le poste peut travailler : session encore ouverte, ou poste reconnu
+   * grâce au jeton conservé ici. C'est ce second cas qui évite de retaper le code.
+   */
   async estConnecte(): Promise<boolean> {
     const res = await fetch('/api/auth/moi');
-    return res.ok;
+    if (res.ok) return true;
+
+    const jetonAppareil = lireJetonAppareil();
+    if (!jetonAppareil) return false;
+
+    const reprise = await fetch('/api/auth/appareil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jetonAppareil }),
+    });
+    if (reprise.ok) return true;
+
+    // Reconnaissance expirée ou révoquée : inutile de la conserver.
+    ecrireJetonAppareil(null);
+    return false;
   },
 
+  /** Ce poste est-il reconnu pour une semaine ? */
+  appareilMemorise(): boolean {
+    return lireJetonAppareil() !== null;
+  },
+
+  /** Déconnexion explicite : la session est fermée et le poste n'est plus reconnu. */
   async deconnexion(): Promise<void> {
-    await fetch('/api/auth/deconnexion', { method: 'POST' });
+    const jetonAppareil = lireJetonAppareil();
+    ecrireJetonAppareil(null);
+    await fetch('/api/auth/deconnexion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jetonAppareil }),
+    });
   },
 };
 

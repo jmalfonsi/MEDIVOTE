@@ -148,8 +148,10 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   return (
     <div className={`relative w-full ${isFullscreen ? 'max-w-none px-2 sm:px-4 py-1' : 'max-w-[1800px] mx-auto px-2 sm:px-4 py-3'} select-none transition-all`}>
       
-      {/* TOP COMPACT STATUS & CONTROL MONITOR BAR */}
-      <div className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 shadow-xs mb-2.5 space-y-2">
+      {/* Bandeau d'état et de commandes. En plein écran il disparaît : la table
+          porte déjà le texte soumis au vote, le décompte et la participation, et
+          les commandes du scrutin remontent dans la barre du haut. */}
+      <div className={`bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 shadow-xs mb-2.5 space-y-2 ${isFullscreen ? 'hidden' : ''}`}>
         
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
           
@@ -371,7 +373,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
       {/* Main Oval Boardroom Arena */}
       <div className={`relative w-full ${
         isFullscreen 
-          ? 'h-[calc(100vh-215px)] min-h-[560px] max-h-[1100px] p-3 sm:p-6 md:p-8' 
+          ? 'h-[calc(100vh-84px)] min-h-[560px] max-h-[1400px] p-3 sm:p-6 md:p-8' 
           : 'min-h-[860px] lg:min-h-[1000px] p-3 sm:p-6 md:p-8'
       } rounded-3xl bg-[#F4F7F5] border border-slate-200 shadow-sm flex items-center justify-center`}>
         

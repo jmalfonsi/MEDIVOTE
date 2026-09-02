@@ -33,6 +33,10 @@ import {
   getAllTemplates,
   saveTemplate,
   deleteTemplate,
+  enregistrerAppareil,
+  verifierAppareil,
+  oublierAppareil,
+  purgerAppareilsExpires,
 } from './server/db';
 import {
   authentifierAdmin,
@@ -42,6 +46,10 @@ import {
   verifierConfiguration,
   poserCookie,
   effacerCookie,
+  creerJeton,
+  creerJetonAppareil,
+  empreinteAppareil,
+  JOURS_APPAREIL_CONFIANCE,
 } from './server/auth';
 import { RealtimeNotification } from './src/types';
 
@@ -118,6 +126,7 @@ async function startServer() {
   // Initialize SQLite database
   verifierConfiguration();
   await initDatabase();
+  purgerAppareilsExpires();
   console.log('Base SQLite MediVote initialisée.');
 
   // Health check
@@ -130,6 +139,46 @@ async function startServer() {
     try {
       const empreintePoste = req.ip || 'inconnu';
       const jeton = authentifierAdmin(req.body?.pin, empreintePoste);
+      poserCookie(res, jeton);
+
+      // Si le poste demande à être reconnu, on lui remet un jeton valable une
+      // semaine. Le serveur n'en conserve que l'empreinte.
+      let jetonAppareil: string | undefined;
+      if (req.body?.memoriserAppareil) {
+        const cree = creerJetonAppareil();
+        enregistrerAppareil(
+          cree.empreinte,
+          String(req.body?.libelleAppareil || 'Poste de séance').slice(0, 80),
+          JOURS_APPAREIL_CONFIANCE
+        );
+        jetonAppareil = cree.jeton;
+      }
+
+      res.json({
+        role: jeton.role,
+        expireA: jeton.expireA,
+        jetonAppareil,
+        joursValiditeAppareil: JOURS_APPAREIL_CONFIANCE,
+      });
+    } catch (err: any) {
+      res.status(401).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Ouvre une session à partir du jeton conservé sur le poste, sans ressaisir le
+   * code. L'échéance glisse : sept jours à compter de la dernière utilisation.
+   */
+  app.post('/api/auth/appareil', (req, res) => {
+    try {
+      const jetonAppareil = String(req.body?.jetonAppareil || '');
+      if (!jetonAppareil) return res.status(401).json({ error: 'Appareil non reconnu.' });
+
+      if (!verifierAppareil(empreinteAppareil(jetonAppareil), JOURS_APPAREIL_CONFIANCE)) {
+        return res.status(401).json({ error: 'Appareil non reconnu ou reconnaissance expirée.' });
+      }
+
+      const jeton = creerJeton('admin');
       poserCookie(res, jeton);
       res.json({ role: jeton.role, expireA: jeton.expireA });
     } catch (err: any) {
@@ -146,6 +195,9 @@ async function startServer() {
   app.post('/api/auth/deconnexion', (req, res) => {
     revoquerJeton(req);
     effacerCookie(res);
+    // Se déconnecter, c'est aussi demander que ce poste ne soit plus reconnu.
+    const jetonAppareil = req.body?.jetonAppareil;
+    if (jetonAppareil) oublierAppareil(empreinteAppareil(String(jetonAppareil)));
     res.json({ success: true });
   });
 

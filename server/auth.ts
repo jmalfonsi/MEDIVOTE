@@ -24,6 +24,7 @@ export interface Jeton {
 }
 
 const DUREE_SESSION_MS = 12 * 60 * 60 * 1000; // une journée de séance
+export const JOURS_APPAREIL_CONFIANCE = 7;
 const PIN_DEV_PAR_DEFAUT = '582103';
 const MAX_TENTATIVES = 5;
 const VERROU_MS = 5 * 60 * 1000;
@@ -160,6 +161,20 @@ export function authentifierAdmin(pinSaisi: string, empreintePoste: string): Jet
 
   tentatives.delete(empreintePoste);
   return creerJeton('admin');
+}
+
+/*
+ * Appareil de confiance : le poste conserve un jeton valable sept jours, le serveur
+ * n'en garde que l'empreinte. Le jeton n'est donné qu'une fois, au moment où le code
+ * administrateur vient d'être saisi correctement.
+ */
+export function creerJetonAppareil(): { jeton: string; empreinte: string } {
+  const jeton = crypto.randomBytes(32).toString('base64url');
+  return { jeton, empreinte: empreinteAppareil(jeton) };
+}
+
+export function empreinteAppareil(jeton: string): string {
+  return crypto.createHash('sha256').update(jeton).digest('hex');
 }
 
 /** Barre l'accès aux requêtes sans jeton administrateur valide. */
