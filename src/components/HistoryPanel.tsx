@@ -133,15 +133,15 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-emerald-600" />
-              Registre SQLite Officiel
+              Registre officiel
             </span>
             <span className="text-xs text-slate-500 font-mono">{history.length} scrutins archivés</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
             Historique des Délibérations & Procès-Verbaux
           </h1>
-          <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Consultez les résultats certifiés des votes passés, les taux de participation, les quorums et imprimez les procès-verbaux de séance.
+          <p className="mv-aide text-xs sm:text-sm text-slate-600 mt-1">
+            Consultez les résultats des votes passés, les taux de participation, les quorums et imprimez les procès-verbaux de séance.
           </p>
         </div>
 
@@ -212,7 +212,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
           <History className="w-10 h-10 text-slate-400 mx-auto" />
           <h3 className="text-sm font-bold text-slate-700">Aucun scrutin archivé correspondant</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Les délibérations clôturées depuis la table ovale sont enregistrées automatiquement ici dans la base SQLite.
+            Les délibérations clôturées depuis la table ovale sont enregistrées ici automatiquement.
           </p>
         </div>
       ) : (

@@ -19,6 +19,34 @@
   }
 }
 
+/*
+ * Affichage simplifié.
+ *
+ * En séance, l'écran est lu par des administrateurs, pas par un exploitant : les
+ * mentions de mécanique interne et les outils de démonstration n'y ont pas leur
+ * place. Ce mode les retire et laisse respirer ce qui reste. Il ne change ni les
+ * couleurs ni la composition : il ôte, il ne redessine pas.
+ *
+ *   .mv-technique — mention de la mécanique interne (base, flux, « certifié »)
+ *   .mv-demo      — outil de démonstration ou de simulation
+ *   .mv-aide      — texte d'explication, utile pour prendre en main, pas en séance
+ */
+[data-affichage="simplifie"] .mv-technique,
+[data-affichage="simplifie"] .mv-demo,
+[data-affichage="simplifie"] .mv-aide {
+  display: none !important;
+}
+
+/* Ce qui reste dispose de la place libérée. */
+[data-affichage="simplifie"] .mv-bloc {
+  padding-top: 1.75rem;
+  padding-bottom: 1.75rem;
+}
+
+[data-affichage="simplifie"] .mv-titre {
+  margin-bottom: 0.5rem;
+}
+
 /* Natural Tones Ambient Grid */
 .bg-medical-grid {
   background-size: 32px 32px;

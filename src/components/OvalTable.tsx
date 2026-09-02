@@ -482,7 +482,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               <button
                 onClick={onQuickVoteAllFor}
                 disabled={session.status !== 'open'}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="mv-demo px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={session.status === 'open' ? 'Tous les votants présents votent Pour' : "Ouvrez d'abord le scrutin"}
               >
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -492,7 +492,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               <button
                 onClick={onSimulateRandomVotes}
                 disabled={session.status !== 'open'}
-                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                className="mv-demo px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
                 title={session.status === 'open' ? 'Simuler des votes pour démonstration' : "Ouvrez d'abord le scrutin"}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />

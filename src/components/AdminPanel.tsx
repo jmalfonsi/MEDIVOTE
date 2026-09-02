@@ -267,7 +267,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           status,
           attendeeIds: selectedAttendeeIds,
         });
-        setSuccessMessage('Séance mise à jour avec succès dans SQLite !');
+        setSuccessMessage('Séance mise à jour.');
       } else {
         await onCreateMeeting({
           referenceCode,
@@ -282,7 +282,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           status,
           attendeeIds: selectedAttendeeIds,
         });
-        setSuccessMessage('Nouvelle séance créée et enregistrée dans SQLite !');
+        setSuccessMessage('Nouvelle séance créée.');
       }
       setIsMeetingFormOpen(false);
       setTimeout(() => setSuccessMessage(null), 4000);
@@ -337,7 +337,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         seatNumber: Number(voterSeatNumber),
       });
       handleResetVoterForm();
-      setSuccessMessage('Votant enregistré dans la base SQLite !');
+      setSuccessMessage('Votant enregistré.');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       alert('Erreur: ' + err.message);
@@ -355,7 +355,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await onImportVoters(importText, importListCode);
       setIsImportModalOpen(false);
       setImportText('');
-      setSuccessMessage('Importation en masse réussie dans SQLite !');
+      setSuccessMessage('Importation réussie.');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       alert('Erreur lors de l\'importation: ' + err.message);
@@ -417,7 +417,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Top Admin Header */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mv-technique flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
               Gestionnaire Médical Avancé
             </span>
@@ -427,10 +427,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            Administration des Délibérations & Réunions de Vote
+            Administration des séances
           </h1>
-          <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Gérez les séances, les résolutions à voter, les listes de collèges (CA, CC, Bureau) et l'archivage SQLite certifié.
+          <p className="mv-aide text-xs sm:text-sm text-slate-600 mt-1">
+            Gérez les séances, les résolutions à voter, les listes de collèges (CA, CC, Bureau) et l'archivage des procès-verbaux.
           </p>
         </div>
 
@@ -473,7 +473,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <FileText className="w-4 h-4" />
-          1. Réunions & Ordres du Jour ({meetings.length})
+          1. Séances et ordres du jour ({meetings.length})
         </button>
 
         <button
@@ -485,7 +485,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <UserCheck className="w-4 h-4" />
-          2. Émargement & Pouvoirs (2 max)
+          2. Émargement et procurations
         </button>
 
         <button
@@ -497,7 +497,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Layers className="w-4 h-4" />
-          3. Collèges & Listes Enregistrées ({lists.length})
+          3. Collèges et listes ({lists.length})
         </button>
 
         <button
@@ -509,7 +509,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          4. Répertoire des Votants ({voters.length})
+          4. Répertoire des membres ({voters.length})
         </button>
 
         <button
@@ -521,7 +521,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <HistoryIcon className="w-4 h-4" />
-          5. Historique & Archives SQLite ({history.length})
+          5. Procès-verbaux ({history.length})
         </button>
       </div>
 
@@ -649,10 +649,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Database className="w-4 h-4 text-emerald-600" />
-                  Toutes les Séances & Délibérations Enregistrées en Base
+                  Toutes les séances
                 </h2>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Une seule séance peut être en cours à la fois. Cliquez sur la séance active pour afficher la Table Ovale.
+                  <span className="mv-aide">Une seule séance est affichée sur la table à la fois. Cliquez sur la séance active pour l'ouvrir.</span>
                 </p>
               </div>
 
@@ -1675,7 +1675,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="border-b border-slate-100 pb-3">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <HistoryIcon className="w-4 h-4 text-emerald-600" />
-              Procès-Verbaux des Scrutins Clôturés (Archives SQLite)
+              Procès-verbaux des scrutins clôturés
             </h2>
             <p className="text-xs text-slate-600">
               Retrouvez l'historique complet et inaltérable des délibérations adoptées ou rejetées.
@@ -1687,7 +1687,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <Database className="w-10 h-10 mx-auto text-slate-300" />
               <h3 className="text-sm font-bold text-slate-700">Aucun historique de vote archivé</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Lorsque vous clôturez un vote depuis la table ovale, le résultat et le détail des suffrages sont automatiquement enregistrés ici en SQLite.
+                Lorsque vous clôturez un vote depuis la table ovale, le résultat et le détail des suffrages sont enregistrés ici.
               </p>
             </div>
           ) : (
@@ -2208,7 +2208,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  {isSaving ? 'Enregistrement SQLite...' : 'Enregistrer la Réunion'}
+                  {isSaving ? 'Enregistrement…' : 'Enregistrer la réunion'}
                 </button>
               </div>
 
@@ -2288,7 +2288,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5"
                 >
                   <UploadCloud className="w-4 h-4" />
-                  {isSaving ? 'Importation...' : 'Valider & Importer dans SQLite'}
+                  {isSaving ? 'Importation…' : 'Valider et importer'}
                 </button>
               </div>
             </form>

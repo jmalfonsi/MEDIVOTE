@@ -45,6 +45,31 @@ export default function App() {
   // Tant que le serveur n'a pas reconnu une session administrateur, rien n'est chargé.
   const [sessionOuverte, setSessionOuverte] = useState<boolean>(false);
 
+  /*
+   * Affichage simplifié : ne laisse que l'essentiel à l'écran pendant la séance.
+   * Le choix est propre au poste et survit à un rechargement — en séance, on ne
+   * veut pas avoir à le refaire après un rafraîchissement malencontreux.
+   */
+  const [affichageSimplifie, setAffichageSimplifie] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('medivote.affichage') === 'simplifie';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      'data-affichage',
+      affichageSimplifie ? 'simplifie' : 'complet'
+    );
+    try {
+      localStorage.setItem('medivote.affichage', affichageSimplifie ? 'simplifie' : 'complet');
+    } catch (_) {
+      // Navigateur qui refuse le stockage : le mode reste actif pour la session.
+    }
+  }, [affichageSimplifie]);
+
   // Toggle table full screen mode
   const handleToggleFullscreen = useCallback(() => {
     setIsFullscreenTable(prev => {
@@ -579,6 +604,8 @@ export default function App() {
         isFullscreenTable={isFullscreenTable}
         onToggleFullscreenTable={handleToggleFullscreen}
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
+        affichageSimplifie={affichageSimplifie}
+        onToggleAffichageSimplifie={() => setAffichageSimplifie(v => !v)}
         onClearNotifications={handleClearNotifications}
         onSwitchMeeting={handleSwitchMeeting}
         onResetVotes={handleResetVotes}
@@ -698,14 +725,14 @@ export default function App() {
         <footer className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-center text-slate-500 text-xs flex flex-col sm:flex-row items-center justify-between max-w-[1800px] mx-auto w-full gap-2 mt-auto">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span className="font-medium text-slate-700">Système de Vote Médical Certifié • Medivote Pro</span>
+            <span className="mv-technique font-medium text-slate-700">Système de Vote Médical Certifié • Medivote Pro</span>
           </div>
           <div className="flex items-center gap-3 font-mono text-[0.6875rem] text-slate-500">
-            <span>Persistance SQLite Active</span>
-            <span>•</span>
-            <span>SSE Synchro Directe</span>
-            <span>•</span>
-            <span>{voters.filter(v => v.isActive).length} Votants</span>
+            <span className="mv-technique">Persistance SQLite Active</span>
+            <span className="mv-technique">•</span>
+            <span className="mv-technique">SSE Synchro Directe</span>
+            <span className="mv-technique">•</span>
+            <span>{voters.filter(v => v.isActive).length} votants</span>
           </div>
         </footer>
       )}

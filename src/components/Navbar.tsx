@@ -17,7 +17,9 @@ import {
   ChevronDown,
   Plus,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { VotingSession, VoteStatistics, MeetingItem, RealtimeNotification } from '../types';
 import { NotificationCenter } from './NotificationCenter';
@@ -58,6 +60,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onQuickVoteAllFor,
   onSimulateRandomVotes,
   onOpenModeModal,
+  affichageSimplifie = false,
+  onToggleAffichageSimplifie,
 }) => {
   const [isMeetingDropdownOpen, setIsMeetingDropdownOpen] = useState(false);
 
@@ -78,7 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="font-bold text-sm tracking-tight text-slate-900 leading-none">
                   Medivote
                 </span>
-                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[0.5625rem] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span className="mv-technique inline-flex items-center px-1.5 py-0.2 rounded text-[0.5625rem] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                   SQLite
                 </span>
               </div>
@@ -262,8 +266,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          {/* Quick simulation helper buttons */}
-          <div className="hidden sm:flex items-center gap-1">
+          {/* Bascule d'affichage : à portée de main, elle sert en pleine séance. */}
+          {onToggleAffichageSimplifie && (
+            <button
+              onClick={onToggleAffichageSimplifie}
+              aria-pressed={affichageSimplifie}
+              title={
+                affichageSimplifie
+                  ? "Revenir à l'affichage complet (mentions techniques et outils de démonstration)"
+                  : "Affichage simplifié : ne garder que l'essentiel de la séance"
+              }
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-medium transition shadow-2xs ${
+                affichageSimplifie
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              {affichageSimplifie ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 text-slate-400" />}
+              <span className="hidden lg:inline">{affichageSimplifie ? 'Vue complète' : 'Vue simplifiée'}</span>
+            </button>
+          )}
+
+          {/* Raccourcis de démonstration */}
+          <div className="mv-demo hidden sm:flex items-center gap-1">
             <button
               onClick={onSimulateRandomVotes}
               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium transition shadow-2xs"
