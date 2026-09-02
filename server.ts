@@ -37,7 +37,13 @@ import {
   verifierAppareil,
   oublierAppareil,
   purgerAppareilsExpires,
+  jetonVotePour,
+  contexteVotant,
+  voterAvecJeton,
+  purgerJetonsVoteExpires,
+  HEURES_VALIDITE_LIEN,
 } from './server/db';
+import { lienDeVote, qrDataUri } from './server/qr';
 import {
   authentifierAdmin,
   exigerAdmin,
@@ -127,6 +133,7 @@ async function startServer() {
   verifierConfiguration();
   await initDatabase();
   purgerAppareilsExpires();
+  purgerJetonsVoteExpires();
   console.log('Base SQLite MediVote initialisée.');
 
   // Health check
@@ -199,6 +206,79 @@ async function startServer() {
     const jetonAppareil = req.body?.jetonAppareil;
     if (jetonAppareil) oublierAppareil(empreinteAppareil(String(jetonAppareil)));
     res.json({ success: true });
+  });
+
+  /* ------------------------------------------------------------------
+   * Vote nominatif par QR code — les seules routes ouvertes sans session
+   * administrateur. L'autorisation tient entièrement au jeton du lien :
+   * imprévisible, propre à un membre et à une séance, valable un jour, et
+   * bon pour un seul bulletin. Le QR n'est montré que sur l'écran de la
+   * salle, de sorte qu'il faut y être pour l'obtenir.
+   * ------------------------------------------------------------------ */
+
+  // Un lien de vote ne doit pas pouvoir être cherché à l'aveugle.
+  const tentativesVote = new Map<string, { compte: number; remiseA: number }>();
+  function limiterCadence(req: any, res: any, next: any): void {
+    const cle = req.ip || 'inconnu';
+    const maintenant = Date.now();
+    const etat = tentativesVote.get(cle);
+    if (!etat || etat.remiseA <= maintenant) {
+      tentativesVote.set(cle, { compte: 1, remiseA: maintenant + 60_000 });
+      return next();
+    }
+    etat.compte += 1;
+    if (etat.compte > 60) {
+      res.status(429).json({ error: 'Trop de requêtes. Patientez une minute.' });
+      return;
+    }
+    next();
+  }
+
+  app.get('/api/scrutin/:jeton', limiterCadence, (req, res) => {
+    try {
+      const contexte = contexteVotant(String(req.params.jeton));
+      if (!contexte) {
+        return res.status(404).json({ error: "Ce lien de vote n'est plus valable." });
+      }
+      res.json(contexte);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/scrutin/:jeton/bulletin', limiterCadence, (req, res) => {
+    try {
+      const vote = String(req.body?.vote || '');
+      if (!['for', 'against', 'abstain'].includes(vote)) {
+        return res.status(400).json({ error: 'Suffrage invalide.' });
+      }
+
+      const { session, voterId, pouvoirs } = voterAvecJeton(
+        String(req.params.jeton),
+        vote as 'for' | 'against' | 'abstain'
+      );
+
+      const votant = getAllVoters().find(v => v.id === voterId);
+      const nom = votant ? `${votant.title} ${votant.name}` : voterId;
+      const libelle = vote === 'for' ? 'POUR (Adoption)' : vote === 'against' ? 'CONTRE (Rejet)' : 'ABSTENTION';
+      const mentionPouvoirs = pouvoirs > 0 ? ` (avec ${pouvoirs} pouvoir${pouvoirs > 1 ? 's' : ''})` : '';
+
+      const notif = logEvent(anonymiserSiSecret({
+        type: 'vote_cast',
+        title: 'Suffrage Exprimé',
+        message: `${nom} a voté depuis son téléphone : ${libelle}${mentionPouvoirs}`,
+        voterName: nom,
+        voteChoice: vote as any,
+        sessionId: session.id,
+        timestamp: new Date().toISOString(),
+      } as RealtimeNotification, Boolean(session.isSecret)));
+      broadcastSSE(notif);
+
+      res.json({ enregistre: true, pouvoirs, secret: Boolean(session.isSecret) });
+    } catch (err: any) {
+      const conflit = /valable|déjà|clôturé|ouvert|émargé|pouvoir|convoqués/i.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
   });
 
   // À partir d'ici, toute l'API exige une session administrateur ouverte.
@@ -464,6 +544,39 @@ async function startServer() {
     } catch (err: any) {
       const conflit = /clôturée|introuvable/.test(err.message || '');
       res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Liens de vote de la séance : un par membre convoqué, avec son QR code.
+   * Les jetons déjà émis et encore valables sont réutilisés tels quels, pour
+   * qu'un membre ayant déjà scanné ne se retrouve pas avec un lien mort.
+   */
+  app.get('/api/liens-vote', async (req, res) => {
+    try {
+      const sessionId = String(req.query.sessionId || '') || getActiveSession()?.id;
+      if (!sessionId) return res.status(400).json({ error: 'Aucune séance à équiper de liens de vote.' });
+
+      const seance = getSessionById(sessionId);
+      if (!seance) return res.status(404).json({ error: 'Séance introuvable.' });
+      if (seance.status === 'closed') return res.json({ sessionId, liens: [] });
+
+      const convoques = Object.keys(seance.voterStates);
+      const liens = await Promise.all(convoques.map(async (voterId) => {
+        const jeton = jetonVotePour(sessionId, voterId);
+        const url = lienDeVote(req, jeton.jeton);
+        return {
+          voterId,
+          url,
+          qr: await qrDataUri(url),
+          expireLe: jeton.expireLe,
+          utilise: Boolean(jeton.utiliseLe),
+        };
+      }));
+
+      res.json({ sessionId, liens, heuresValidite: HEURES_VALIDITE_LIEN });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

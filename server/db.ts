@@ -1,4 +1,5 @@
 import initSqlJs, { Database } from 'sql.js';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { calculateVoteStatistics } from '../src/utils/votingMath';
@@ -8,6 +9,7 @@ import {
   VoterSessionState, 
   SessionHistoryItem, 
   SessionOutcome,
+  SessionStatus,
   MeetingItem,
   RealtimeNotification,
   VoterList,
@@ -260,6 +262,15 @@ export async function initDatabase(): Promise<Database> {
       cree_le TEXT NOT NULL,
       expire_le TEXT NOT NULL,
       dernier_usage TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS jetons_vote (
+      jeton TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      voter_id TEXT NOT NULL,
+      cree_le TEXT NOT NULL,
+      expire_le TEXT NOT NULL,
+      utilise_le TEXT
     );
 
     CREATE TABLE IF NOT EXISTS motion_templates (
@@ -1032,6 +1043,9 @@ export function resetSessionVotes(sessionId: string): void {
     `UPDATE session_voter_states SET vote_choice='pending', voted_at=NULL WHERE session_id=?`,
     [sessionId]
   );
+  // Les suffrages repartent de zéro : les liens de vote redeviennent utilisables,
+  // sinon un membre ayant déjà voté ne pourrait plus se prononcer sur le nouveau tour.
+  db.run(`UPDATE jetons_vote SET utilise_le=NULL WHERE session_id=?`, [sessionId]);
   db.run(
     `UPDATE sessions SET status='open', outcome='pending', closed_at=NULL WHERE id=?`,
     [sessionId]
@@ -1068,6 +1082,9 @@ export function archiveAndCloseSession(sessionId: string): { history: SessionHis
     `UPDATE sessions SET status='closed', outcome=?, closed_at=?, is_current_active=0 WHERE id=?`,
     [stats.outcome, now, sessionId]
   );
+
+  // La séance est close : les liens de vote nominatifs n'ont plus d'objet.
+  db.run("DELETE FROM jetons_vote WHERE session_id = ?", [sessionId]);
 
   // If another non-closed session exists, designate it as the current active one
   const nextOpenRes = db.exec("SELECT id FROM sessions WHERE status != 'closed' ORDER BY created_at DESC LIMIT 1");
@@ -1363,4 +1380,210 @@ export function resetToDemoData() {
   }
   db = null as any;
   return initDatabase();
+}
+
+/* ------------------------------------------------------------------
+ * Liens de vote nominatifs (QR code)
+ *
+ * Chaque membre convoqué reçoit un lien qui n'ouvre qu'une seule page : la
+ * sienne, pour la séance en cours, valable un jour, et qui n'accepte qu'un seul
+ * bulletin. Le QR code n'est montré que sur l'écran de la salle : le tenir en
+ * main suppose d'être présent, ce qui reste la règle « salle uniquement ».
+ *
+ * Contrairement au jeton d'appareil, le jeton de vote est conservé en clair :
+ * l'administrateur doit pouvoir réafficher le MÊME QR code plusieurs fois dans
+ * la séance. Sa portée est étroite — un votant, une séance, un jour, un bulletin —
+ * et la base n'est lisible que depuis le serveur.
+ * ------------------------------------------------------------------ */
+
+export const HEURES_VALIDITE_LIEN = 24;
+
+export interface JetonVote {
+  jeton: string;
+  sessionId: string;
+  voterId: string;
+  creeLe: string;
+  expireLe: string;
+  utiliseLe: string | null;
+}
+
+function ligneVersJeton(cols: string[], row: any[]): JetonVote {
+  const o: any = {};
+  cols.forEach((c, i) => { o[c] = row[i]; });
+  return {
+    jeton: String(o.jeton),
+    sessionId: String(o.session_id),
+    voterId: String(o.voter_id),
+    creeLe: String(o.cree_le),
+    expireLe: String(o.expire_le),
+    utiliseLe: o.utilise_le ? String(o.utilise_le) : null,
+  };
+}
+
+/** Retire les liens périmés. Appelé au démarrage et avant chaque distribution. */
+export function purgerJetonsVoteExpires(): void {
+  db.run("DELETE FROM jetons_vote WHERE expire_le <= ?", [new Date().toISOString()]);
+  saveDbToDisk();
+}
+
+/**
+ * Renvoie le lien du membre pour cette séance, en le créant s'il n'existe pas
+ * encore ou s'il est périmé. Un lien encore valide n'est jamais remplacé : un
+ * membre qui a déjà scanné doit pouvoir voter même si l'écran réaffiche son QR.
+ */
+export function jetonVotePour(
+  sessionId: string,
+  voterId: string,
+  dureeHeures: number = HEURES_VALIDITE_LIEN
+): JetonVote {
+  const maintenant = new Date();
+  const res = db.exec(
+    "SELECT * FROM jetons_vote WHERE session_id = ? AND voter_id = ?",
+    [sessionId, voterId]
+  );
+
+  if (res.length && res[0].values.length) {
+    const existant = ligneVersJeton(res[0].columns, res[0].values[0]);
+    if (new Date(existant.expireLe).getTime() > maintenant.getTime()) return existant;
+    db.run("DELETE FROM jetons_vote WHERE jeton = ?", [existant.jeton]);
+  }
+
+  const nouveau: JetonVote = {
+    jeton: crypto.randomBytes(24).toString('base64url'),
+    sessionId,
+    voterId,
+    creeLe: maintenant.toISOString(),
+    expireLe: new Date(maintenant.getTime() + dureeHeures * 3600 * 1000).toISOString(),
+    utiliseLe: null,
+  };
+  db.run(
+    `INSERT INTO jetons_vote (jeton, session_id, voter_id, cree_le, expire_le, utilise_le)
+     VALUES (?, ?, ?, ?, ?, NULL)`,
+    [nouveau.jeton, nouveau.sessionId, nouveau.voterId, nouveau.creeLe, nouveau.expireLe]
+  );
+  saveDbToDisk();
+  return nouveau;
+}
+
+export function lireJetonVote(jeton: string): JetonVote | null {
+  const res = db.exec("SELECT * FROM jetons_vote WHERE jeton = ?", [jeton]);
+  if (!res.length || !res[0].values.length) return null;
+  const trouve = ligneVersJeton(res[0].columns, res[0].values[0]);
+  if (new Date(trouve.expireLe).getTime() <= Date.now()) {
+    db.run("DELETE FROM jetons_vote WHERE jeton = ?", [trouve.jeton]);
+    saveDbToDisk();
+    return null;
+  }
+  return trouve;
+}
+
+/** Efface tous les liens d'une séance : à la clôture, ils n'ont plus d'objet. */
+export function revoquerJetonsVote(sessionId: string): void {
+  db.run("DELETE FROM jetons_vote WHERE session_id = ?", [sessionId]);
+  saveDbToDisk();
+}
+
+/**
+ * Enregistre le bulletin déposé depuis le téléphone d'un membre.
+ *
+ * Toutes les conditions de recevabilité sont vérifiées ICI, côté serveur : le
+ * téléphone ne fait qu'appuyer sur un bouton, il ne décide de rien.
+ */
+export function voterAvecJeton(
+  jeton: string,
+  vote: 'for' | 'against' | 'abstain'
+): { session: VotingSession; voterId: string; pouvoirs: number } {
+  const lien = lireJetonVote(jeton);
+  if (!lien) throw new Error("Ce lien de vote n'est plus valable. Demandez à l'administrateur de séance.");
+  if (lien.utiliseLe) throw new Error('Votre suffrage a déjà été enregistré : on ne vote qu\'une fois.');
+
+  const seance = getSessionById(lien.sessionId);
+  if (!seance) throw new Error('Séance introuvable.');
+  if (seance.status === 'closed') throw new Error('Le scrutin est clôturé : votre suffrage ne peut plus être enregistré.');
+  if (seance.status !== 'open') throw new Error("Le scrutin n'est pas encore ouvert. Patientez, la page se mettra à jour.");
+
+  const etat = seance.voterStates[lien.voterId];
+  if (!etat) throw new Error("Vous ne figurez pas parmi les membres convoqués à cette séance.");
+  if (etat.presence === 'absent' || etat.presence === 'excused') {
+    throw new Error("Vous n'êtes pas émargé présent. Signalez-vous à l'administrateur de séance.");
+  }
+  if (etat.presence === 'proxy') {
+    throw new Error('Vous avez donné pouvoir à un autre membre : c\'est lui qui vote pour vous.');
+  }
+
+  const maintenant = new Date().toISOString();
+  db.run(
+    `INSERT INTO session_voter_states (session_id, voter_id, presence, vote_choice, voted_at)
+     VALUES (?, ?, 'present', ?, ?)
+     ON CONFLICT(session_id, voter_id) DO UPDATE SET vote_choice=?, voted_at=?`,
+    [lien.sessionId, lien.voterId, vote, maintenant, vote, maintenant]
+  );
+
+  // Les pouvoirs reçus suivent le vote du mandataire, exactement comme lorsque
+  // l'administrateur vote à sa place depuis la table.
+  db.run(
+    `UPDATE session_voter_states SET vote_choice=?, voted_at=?
+     WHERE session_id=? AND proxy_to_id=? AND presence='proxy'`,
+    [vote, maintenant, lien.sessionId, lien.voterId]
+  );
+
+  db.run("UPDATE jetons_vote SET utilise_le=? WHERE jeton=?", [maintenant, jeton]);
+  saveDbToDisk();
+
+  const apres = getSessionById(lien.sessionId)!;
+  const pouvoirs = Object.values(apres.voterStates).filter(
+    (e) => e.presence === 'proxy' && e.proxyToId === lien.voterId
+  ).length;
+
+  return { session: apres, voterId: lien.voterId, pouvoirs };
+}
+
+/** Tout ce que la page mobile d'un votant a le droit de connaître. */
+export function contexteVotant(jeton: string): {
+  seance: { referenceCode: string; title: string; motionText: string; scheduledDate: string; scheduledTime: string; location: string; status: SessionStatus; isSecret: boolean };
+  votant: { name: string; title: string; seatNumber: number };
+  presence: string;
+  aVote: boolean;
+  choix: string | null;
+  pouvoirs: { name: string; title: string }[];
+  expireLe: string;
+} | null {
+  const lien = lireJetonVote(jeton);
+  if (!lien) return null;
+
+  const seance = getSessionById(lien.sessionId);
+  if (!seance) return null;
+
+  const voters = getAllVoters();
+  const votant = voters.find((v) => v.id === lien.voterId);
+  if (!votant) return null;
+
+  const etat = seance.voterStates[lien.voterId] || { presence: 'absent', vote: 'pending' };
+  const pouvoirs = Object.entries(seance.voterStates)
+    .filter(([, e]) => e.presence === 'proxy' && e.proxyToId === lien.voterId)
+    .map(([id]) => voters.find((v) => v.id === id))
+    .filter((v): v is Voter => Boolean(v))
+    .map((v) => ({ name: v.name, title: v.title }));
+
+  const aVote = Boolean(lien.utiliseLe) || (etat.vote !== 'pending' && etat.vote !== 'secret');
+
+  return {
+    seance: {
+      referenceCode: seance.referenceCode,
+      title: seance.title,
+      motionText: seance.motionText,
+      scheduledDate: seance.scheduledDate,
+      scheduledTime: seance.scheduledTime,
+      location: seance.location,
+      status: seance.status,
+      isSecret: seance.isSecret,
+    },
+    votant: { name: votant.name, title: votant.title, seatNumber: votant.seatNumber },
+    presence: etat.presence,
+    aVote,
+    // En scrutin secret, le téléphone n'affiche jamais le sens du bulletin déposé.
+    choix: aVote && !seance.isSecret ? etat.vote : null,
+    pouvoirs,
+    expireLe: lien.expireLe,
+  };
 }

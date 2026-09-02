@@ -168,3 +168,13 @@ export interface VoteStatistics {
   /** true lorsque le décompte est celui de la clôture, pas une tendance en cours de scrutin. */
   resultatFinalise: boolean;
 }
+
+/** Lien de vote nominatif d'un membre, avec son QR code prêt à afficher. */
+export interface LienVote {
+  voterId: string;
+  url: string;
+  /** QR code en data:URI SVG — net à toute taille, aucune bibliothèque côté navigateur. */
+  qr: string;
+  expireLe: string;
+  utilise: boolean;
+}

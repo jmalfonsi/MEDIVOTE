@@ -7,7 +7,8 @@ import {
   PresenceStatus,
   MeetingItem,
   RealtimeNotification,
-  VoterList
+  VoterList,
+  LienVote
 } from './types';
 import { api, auth, SessionExpiree } from './services/api';
 import { calculateVoteStatistics } from './utils/votingMath';
@@ -44,6 +45,12 @@ export default function App() {
   const [isCloseModalOpen, setIsCloseModalOpen] = useState<boolean>(false);
   // Tant que le serveur n'a pas reconnu une session administrateur, rien n'est chargé.
   const [sessionOuverte, setSessionOuverte] = useState<boolean>(false);
+
+  /*
+   * Liens de vote nominatifs (QR codes), indexés par membre. Ils ne dépendent que
+   * de la composition de la séance : inutile de les redemander à chaque suffrage.
+   */
+  const [liensVote, setLiensVote] = useState<Record<string, LienVote>>({});
 
   /*
    * Affichage simplifié : ne laisse que l'essentiel à l'écran pendant la séance.
@@ -257,6 +264,34 @@ export default function App() {
       alert('Erreur lors de la mise à jour de présence: ' + err.message);
     }
   };
+
+  /*
+   * Les QR codes sont fabriqués par le serveur, une fois par séance. On les
+   * recharge quand la séance change ou quand sa composition change ; les jetons
+   * encore valables sont réutilisés, si bien qu'un membre ayant déjà scanné
+   * garde un lien vivant.
+   */
+  const empreinteConvoques = session ? Object.keys(session.voterStates).sort().join(',') : '';
+  useEffect(() => {
+    if (!sessionOuverte || !session || session.status === 'closed') {
+      setLiensVote({});
+      return;
+    }
+    let annule = false;
+    api
+      .getLiensVote(session.id)
+      .then(res => {
+        if (annule) return;
+        const parVotant: Record<string, LienVote> = {};
+        (res.liens || []).forEach(lien => { parVotant[lien.voterId] = lien; });
+        setLiensVote(parVotant);
+      })
+      .catch(() => {
+        // Sans QR codes, la séance reste pilotable depuis la table : on n'alerte pas.
+        if (!annule) setLiensVote({});
+      });
+    return () => { annule = true; };
+  }, [sessionOuverte, session?.id, session?.status, empreinteConvoques]);
 
   // Reset votes
   // Ouvre ou suspend le scrutin. Sans effacer aucun suffrage : c'est le sens même
@@ -658,6 +693,7 @@ export default function App() {
             onSetPresence={handleSetPresence}
             onResetVotes={handleResetVotes}
             onDefinirOuverture={handleDefinirOuverture}
+            liensVote={liensVote}
             onCloseSession={() => setIsCloseModalOpen(true)}
             onOpenAdmin={() => setCurrentTab('admin')}
             onQuickVoteAllFor={handleQuickVoteAllFor}

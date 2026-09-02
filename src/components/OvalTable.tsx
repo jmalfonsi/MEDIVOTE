@@ -21,10 +21,12 @@ import {
   UserX,
   FileDown,
   Printer,
-  Vote as VoteIcon
+  Vote as VoteIcon,
+  QrCode,
+  Smartphone
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { VotingSession, Voter, VoteStatistics, VoteChoice, PresenceStatus } from '../types';
+import { VotingSession, Voter, VoteStatistics, VoteChoice, PresenceStatus, LienVote } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { generateSessionPdfReport } from '../utils/pdfExport';
 
@@ -40,6 +42,8 @@ interface OvalTableProps {
   onCloseSession: () => void;
   /** Ouvre ou suspend le scrutin, sans toucher aux suffrages déjà exprimés. */
   onDefinirOuverture?: (ouvert: boolean) => void;
+  /** Liens de vote nominatifs, indexés par membre : le QR à présenter à l'écran. */
+  liensVote?: Record<string, LienVote>;
   onOpenAdmin: () => void;
   onQuickVoteAllFor: () => void;
   onSimulateRandomVotes: () => void;
@@ -56,6 +60,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   onResetVotes,
   onCloseSession,
   onDefinirOuverture,
+  liensVote = {},
   onOpenAdmin,
   onQuickVoteAllFor,
   onSimulateRandomVotes,
@@ -64,6 +69,8 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   const [isTextExpanded, setIsTextExpanded] = useState<boolean>(false);
   const [filterVoterStatus, setFilterVoterStatus] = useState<'all' | 'voted' | 'pending'>('all');
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState<boolean>(false);
+  /* Membre dont le QR code est présenté en grand sur l'écran de la salle. */
+  const [qrPleinEcranId, setQrPleinEcranId] = useState<string | null>(null);
   
   // Strictly filter voters to the meeting's single active list
   const meetingAttendeeIds = session?.selectedAttendeeIds && session.selectedAttendeeIds.length > 0
@@ -557,6 +564,11 @@ export const OvalTable: React.FC<OvalTableProps> = ({
             ? voters.find(v => v.id === state.proxyToId) 
             : null;
 
+          // Le QR n'a d'intérêt que pour un membre présent qui n'a pas encore voté :
+          // une fois le bulletin déposé, le lien est clos.
+          const lienVote = liensVote[voter.id];
+          const qrAPresenter = lienVote && isPresent && !hasVoted ? lienVote : null;
+
           // Proxies held by this voter
           const heldProxies = activeVoters.filter(v => {
             const vs = session.voterStates[v.id];
@@ -695,6 +707,29 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Lien de vote personnel. Le QR est là pour être vu, mais on ne
+                    demande à personne de scanner une vignette : un appui l'affiche
+                    en grand sur l'écran de la salle. */}
+                {qrAPresenter && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQrPleinEcranId(voter.id);
+                    }}
+                    title={`Afficher en grand le QR code de ${voter.name}`}
+                    className="mt-1 w-full flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-1 hover:border-emerald-400 hover:bg-emerald-50 transition"
+                  >
+                    <img
+                      src={qrAPresenter.qr}
+                      alt=""
+                      className="w-9 h-9 rounded-xs bg-white shrink-0"
+                    />
+                    <span className="text-[0.5rem] font-semibold text-slate-500 leading-tight text-left">
+                      Vote par<br />téléphone
+                    </span>
+                  </button>
+                )}
 
               </div>
 
@@ -929,6 +964,44 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 </div>
               )}
 
+              {/* Vote depuis le téléphone du membre. Le QR ne quitte jamais
+                  l'écran de la salle : il faut y être pour le scanner. */}
+              {liensVote[selVoter.id] && selState.presence !== 'proxy' && (
+                <div className="pt-3 border-t border-slate-100">
+                  <label className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                    Ou faire voter depuis son téléphone :
+                  </label>
+                  {selState.vote !== 'pending' ? (
+                    <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                      Bulletin déjà déposé : le lien personnel de ce membre est clos.
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => setQrPleinEcranId(selVoter.id)}
+                        title="Afficher en grand sur l'écran de la salle"
+                        className="shrink-0 rounded-2xl border border-slate-200 bg-white p-1.5 hover:border-emerald-500 transition"
+                      >
+                        <img src={liensVote[selVoter.id].qr} alt="QR code de vote" className="w-28 h-28" />
+                      </button>
+                      <div className="min-w-0 space-y-2">
+                        <p className="text-[0.6875rem] text-slate-600 leading-snug">
+                          Le membre scanne ce code et vote depuis son téléphone.
+                          Un seul bulletin, et ses pouvoirs suivent son vote.
+                        </p>
+                        <button
+                          onClick={() => setQrPleinEcranId(selVoter.id)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          Afficher en grand
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="pt-2 flex items-center justify-between text-[0.6875rem] text-slate-400 border-t border-slate-100">
                 <span className="truncate max-w-[200px]">{selVoter.email}</span>
                 <button
@@ -1141,6 +1214,64 @@ export const OvalTable: React.FC<OvalTableProps> = ({
           </div>
         </div>
       )}
+
+      {/* QR CODE PRÉSENTÉ SUR L'ÉCRAN DE LA SALLE */}
+      {qrPleinEcranId && (() => {
+        const membre = voters.find(v => v.id === qrPleinEcranId);
+        const lien = liensVote[qrPleinEcranId];
+        if (!membre || !lien) return null;
+        const etatMembre = session.voterStates[membre.id];
+        const pouvoirsPortes = activeVoters.filter(v => {
+          const vs = session.voterStates[v.id];
+          return vs?.presence === 'proxy' && vs?.proxyToId === membre.id;
+        });
+
+        return (
+          <div
+            className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-white p-6 animate-in fade-in duration-150"
+            onClick={() => setQrPleinEcranId(null)}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <Smartphone className="w-6 h-6 text-emerald-700" />
+              <h3 className="text-2xl font-bold text-slate-900">
+                {membre.title} {membre.name}
+              </h3>
+              <span className="text-sm font-mono text-emerald-800 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 font-bold">
+                Siège N°{membre.seatNumber}
+              </span>
+            </div>
+
+            {/* Le QR est en SVG : il reste net quelle que soit la diagonale de l'écran. */}
+            <img
+              src={lien.qr}
+              alt={`QR code de vote de ${membre.name}`}
+              className="w-[min(60vh,60vw)] h-[min(60vh,60vw)] border-4 border-slate-900 rounded-2xl bg-white p-3"
+              onClick={(e) => e.stopPropagation()}
+            />
+
+            <p className="mt-5 text-lg text-slate-700 text-center max-w-2xl">
+              Scannez ce code avec l'appareil photo de votre téléphone pour voter.
+            </p>
+            <p className="mt-1 text-sm text-slate-500 text-center">
+              Lien personnel, valable pour cette seule séance et pour un seul bulletin.
+              {pouvoirsPortes.length > 0 && ` Il emporte également ${pouvoirsPortes.length} pouvoir${pouvoirsPortes.length > 1 ? 's' : ''}.`}
+            </p>
+            {etatMembre && etatMembre.presence !== 'present' && (
+              <p className="mt-3 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
+                Ce membre n'est pas émargé présent : son bulletin sera refusé tant que
+                sa présence n'est pas enregistrée.
+              </p>
+            )}
+
+            <button
+              onClick={() => setQrPleinEcranId(null)}
+              className="mt-8 px-8 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-base font-bold transition"
+            >
+              Fermer
+            </button>
+          </div>
+        );
+      })()}
 
     </div>
   );

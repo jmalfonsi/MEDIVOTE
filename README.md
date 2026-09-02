@@ -32,6 +32,30 @@ temps constant, avec verrouillage du poste après 5 essais.
 | `MEDIVOTE_HOST` | Interface d'écoute. | `0.0.0.0` |
 | `MEDIVOTE_DATA_DIR` | Base de séance et sauvegardes. | `./data` |
 | `MEDIVOTE_COOKIE_SECURE` | À passer à `true` dès que le service est en HTTPS. | `false` |
+| `MEDIVOTE_URL_PUBLIQUE` | Adresse publique inscrite dans les QR codes de vote. Doit être joignable depuis les téléphones. | *(déduite des en-têtes du proxy)* |
+
+## Vote nominatif par QR code
+
+Chaque membre convoqué dispose d'un lien personnel, présenté sous forme de QR code
+sur la tuile de son siège en vue table. L'administrateur l'agrandit d'un clic pour
+qu'il soit scanné depuis l'écran de la salle ; le membre vote alors sur son
+téléphone. Le mode administrateur reste disponible en parallèle : il n'est pas
+remplacé, mais doublé.
+
+| Garantie | Mise en œuvre |
+| --- | --- |
+| Un membre, un lien | Jeton de 24 octets tiré au hasard, lié à un couple (séance, membre). |
+| Un seul bulletin | Le jeton est marqué utilisé dès l'enregistrement ; toute nouvelle tentative est refusée sans modifier le suffrage déjà exprimé. |
+| Valable un jour | Échéance à 24 h, et révocation de tous les liens à la clôture de la séance. |
+| Pouvoirs comptés | Le vote du mandataire est propagé à ses procurations, comme depuis la table. |
+| Recevabilité | Le serveur vérifie l'ouverture du scrutin et l'émargement : un membre absent, excusé, ou ayant donné pouvoir ne peut pas déposer de bulletin. |
+| Scrutin secret | Le téléphone n'affiche jamais le sens du bulletin déposé, et la notification de séance reste anonyme. |
+
+Ces règles sont couvertes par `server/__tests__/jetonsVote.test.ts`.
+
+**Le QR code n'est affiché que sur l'écran de la salle** : l'obtenir suppose d'y
+être. C'est ce qui tient lieu de contrôle de présence, la page de vote étant par
+construction accessible sans code administrateur.
 
 ## Exploitation
 
@@ -56,4 +80,6 @@ atomique (fichier temporaire puis renommage), et une copie horodatée est prise 
 
 - Service systemd et terminaison HTTPS (le cookie de session circule en clair sans elle).
 - Répétition générale sur le réseau réel de la salle.
-- Liens de vote nominatifs par QR code, si les membres doivent voter eux-mêmes.
+- Vérifier que les téléphones des membres joignent bien `MEDIVOTE_URL_PUBLIQUE`
+  depuis le réseau de la salle (le filtrage par adresse IP du reverse proxy
+  s'applique aussi aux pages de vote).

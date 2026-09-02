@@ -7,7 +7,8 @@ import {
   MeetingItem, 
   RealtimeNotification,
   VoterList,
-  MotionTemplate
+  MotionTemplate,
+  LienVote
 } from '../types';
 
 /**
@@ -115,6 +116,17 @@ export const auth = {
 };
 
 export const api = {
+  /**
+   * Liens de vote nominatifs de la séance, un par membre convoqué. Le serveur
+   * réutilise les jetons encore valables : réafficher un QR code ne périme pas
+   * celui qu'un membre vient de scanner.
+   */
+  async getLiensVote(sessionId?: string): Promise<{ liens: LienVote[] }> {
+    const requete = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
+    const res = await fetch(`/api/liens-vote${requete}`);
+    return verifier(res, 'Erreur lors de la préparation des liens de vote');
+  },
+
   async getActiveSession(): Promise<{ session: VotingSession | null; voters: Voter[]; meetings?: MeetingItem[] }> {
     const res = await fetch('/api/session/active');
     return verifier(res, 'Erreur lors du chargement de la session');
