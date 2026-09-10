@@ -36,9 +36,12 @@ import {
   Printer,
   Hourglass,
   ExternalLink,
-  Monitor
+  Monitor,
+  ListOrdered,
+  ArrowUp,
+  CalendarPlus
 } from 'lucide-react';
-import { VotingSession, Voter, MajorityType, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice, MotionTemplate } from '../types';
+import { VotingSession, Voter, MajorityType, MeetingItem, SessionHistoryItem, VoterList, PresenceStatus, VoteChoice, MotionTemplate, Seance } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { api } from '../services/api';
 import { generateSessionPdfReport } from '../utils/pdfExport';
@@ -46,6 +49,17 @@ import { PREDEFINED_LOCATIONS } from '../constants/locations';
 
 interface AdminPanelProps {
   session: VotingSession | null;
+  /** Séance affichée sur la table, avec son ordre du jour. */
+  seance?: Seance | null;
+  seances?: Seance[];
+  onSwitchSeance?: (seanceId: string) => Promise<void> | void;
+  onSaveSeance?: (donnees: Partial<Seance> & { attendeeIds?: string[] }) => Promise<void>;
+  onCloseSeance?: (seanceId: string) => Promise<void> | void;
+  onDeleteSeance?: (seanceId: string) => Promise<void> | void;
+  onSwitchResolution?: (resolutionId: string) => Promise<void> | void;
+  onReordonnerResolutions?: (seanceId: string, ordreIds: string[]) => Promise<void> | void;
+  /** Ouvre le formulaire d'ajout d'un point à l'ordre du jour. */
+  onOuvrirAjoutResolution?: () => void;
   voters: Voter[];
   meetings: MeetingItem[];
   history: SessionHistoryItem[];
@@ -66,11 +80,22 @@ interface AdminPanelProps {
   onImportVoters: (text: string, listCode?: string) => Promise<void>;
   onResetDemo: () => Promise<void>;
   onNavigateToTable: () => void;
+  /** Ouvre l'écran Archives, où l'on cherche et exporte les procès-verbaux. */
+  onNavigateToArchives?: () => void;
 }
 
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   session,
+  seance = null,
+  seances = [],
+  onSwitchSeance,
+  onSaveSeance,
+  onCloseSeance,
+  onDeleteSeance,
+  onSwitchResolution,
+  onReordonnerResolutions,
+  onOuvrirAjoutResolution,
   voters,
   meetings,
   history,
@@ -91,9 +116,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onImportVoters,
   onResetDemo,
   onNavigateToTable,
+  onNavigateToArchives,
 }) => {
-  const [activeTab, setActiveTab] = useState<'meetings' | 'attendance' | 'lists' | 'voters' | 'history'>('meetings');
-  const [meetingFilter, setMeetingFilter] = useState<'all' | 'active' | 'pending' | 'closed'>('all');
+  const [activeTab, setActiveTab] = useState<'meetings' | 'attendance' | 'members' | 'history'>('meetings');
+  const [meetingFilter, setMeetingFilter] = useState<'all' | 'ouvertes' | 'closed'>('all');
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedHistorySnapshot, setSelectedHistorySnapshot] = useState<SessionHistoryItem | null>(null);
@@ -115,7 +141,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Voter editing state
   const [editingVoterId, setEditingVoterId] = useState<string | null>(null);
   const [voterName, setVoterName] = useState('');
-  const [voterTitle, setVoterTitle] = useState('Dr.');
+  const [voterTitle, setVoterTitle] = useState('M.');
   const [voterSpecialty, setVoterSpecialty] = useState('');
   const [voterDepartment, setVoterDepartment] = useState('');
   const [voterEmail, setVoterEmail] = useState('');
@@ -146,6 +172,73 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [listDescription, setListDescription] = useState('');
   const [listSelectedVoterIds, setListSelectedVoterIds] = useState<string[]>([]);
   const [selectedViewingList, setSelectedViewingList] = useState<VoterList | null>(null);
+
+  /*
+   * Formulaire de séance : la réunion elle-même. Il ne demande que ce qui
+   * appartient à la séance — quand, où, qui est convoqué. Les intitulés, textes
+   * et majorités appartiennent aux résolutions, et se saisissent point par point.
+   */
+  const [isSeanceFormOpen, setIsSeanceFormOpen] = useState(false);
+  const [editingSeanceId, setEditingSeanceId] = useState<string | null>(null);
+  const [seanceRef, setSeanceRef] = useState('');
+  const [seanceTitle, setSeanceTitle] = useState('');
+  const [seanceDate, setSeanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [seanceTime, setSeanceTime] = useState('14:30');
+  const [seanceLocation, setSeanceLocation] = useState('Saint-Victor');
+  const [seanceAttendees, setSeanceAttendees] = useState<string[]>([]);
+
+  const handleNouvelleSeance = () => {
+    setEditingSeanceId(null);
+    setSeanceRef(`CA-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+    setSeanceTitle('');
+    setSeanceDate(new Date().toISOString().split('T')[0]);
+    setSeanceTime('14:30');
+    setSeanceLocation('Saint-Victor');
+    setSeanceAttendees(voters.filter(v => v.isActive).map(v => v.id));
+    setIsSeanceFormOpen(true);
+  };
+
+  const handleOpenEditSeance = (se: Seance) => {
+    if (se.closedAt) {
+      alert('Cette séance est close et archivée : elle est scellée et ne peut plus être modifiée.');
+      return;
+    }
+    setEditingSeanceId(se.id);
+    setSeanceRef(se.referenceCode);
+    setSeanceTitle(se.title);
+    setSeanceDate(se.scheduledDate);
+    setSeanceTime(se.scheduledTime);
+    setSeanceLocation(se.location);
+    setSeanceAttendees(se.selectedAttendeeIds.length > 0 ? se.selectedAttendeeIds : voters.filter(v => v.isActive).map(v => v.id));
+    setIsSeanceFormOpen(true);
+  };
+
+  const handleSaveSeanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!seanceTitle.trim()) {
+      alert('Une séance doit porter un intitulé.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onSaveSeance?.({
+        id: editingSeanceId || undefined,
+        referenceCode: seanceRef.trim() || 'SEANCE',
+        title: seanceTitle.trim(),
+        scheduledDate: seanceDate,
+        scheduledTime: seanceTime,
+        location: seanceLocation,
+        attendeeIds: seanceAttendees,
+      });
+      setIsSeanceFormOpen(false);
+      setSuccessMessage('Séance enregistrée.');
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      alert('Erreur : ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Initialize meeting form from active session if opening edit
   const handleOpenEditMeeting = (m?: MeetingItem) => {
@@ -263,7 +356,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           isSecret,
           attendeeIds: selectedAttendeeIds,
         });
-        setSuccessMessage('Séance mise à jour.');
+        setSuccessMessage('Vote mis à jour.');
       } else {
         await onCreateMeeting({
           referenceCode,
@@ -279,7 +372,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         });
         // Une séance nouvelle est programmée, pas ouverte : le scrutin s'ouvre
         // depuis la table, quand le président le décide.
-        setSuccessMessage('Séance créée. Son scrutin reste fermé jusqu\'à son ouverture depuis la table.');
+        setSuccessMessage('Vote créé. Son scrutin reste fermé jusqu\'à son ouverture depuis la table.');
       }
       setIsMeetingFormOpen(false);
       setTimeout(() => setSuccessMessage(null), 4000);
@@ -306,7 +399,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleResetVoterForm = () => {
     setEditingVoterId(null);
     setVoterName('');
-    setVoterTitle('Dr.');
+    setVoterTitle('M.');
     setVoterSpecialty('');
     setVoterDepartment('');
     setVoterEmail('');
@@ -408,118 +501,156 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     (v.email && v.email.toLowerCase().includes(voterSearch.toLowerCase()))
   );
 
+
+  /*
+   * Repères de situation, calculés une fois pour l'en-tête : combien de votes
+   * porte la séance affichée, combien restent à trancher, et où l'on en est
+   * dans l'ordre du jour. Le reste de la page s'y réfère au lieu de répéter.
+   */
+  const votesSeance = seance?.resolutions ?? [];
+  const nbVotesSeance = votesSeance.length;
+  const votesRestants = votesSeance.filter(r => r.status !== 'closed').length;
+  const rangVoteCourant = session ? votesSeance.findIndex(r => r.id === session.id) + 1 : 0;
+
+  /** Les quatre sujets de l'administration, dans l'ordre où on les rencontre. */
+  const ONGLETS: { cle: typeof activeTab; libelle: string; Icone: any; compte?: number; aide: string }[] = [
+    { cle: 'meetings', libelle: 'Séances et votes', Icone: Calendar, compte: seances.length,
+      aide: 'Les réunions, leur ordre du jour, et le vote présenté sur la table' },
+    { cle: 'attendance', libelle: 'Émargement', Icone: UserCheck,
+      aide: 'Présents, absents et pouvoirs, pour toute la séance' },
+    { cle: 'members', libelle: 'Membres', Icone: Users, compte: voters.length,
+      aide: 'Le répertoire des personnes et les collèges qui les regroupent' },
+    { cle: 'history', libelle: 'Procès-verbaux', Icone: HistoryIcon, compte: history.length,
+      aide: 'Les résultats archivés, scellés à la clôture de chaque vote' },
+  ];
+
   return (
     <div className="max-w-[1800px] mx-auto px-4 sm:px-8 py-7 space-y-7 animate-in fade-in">
       
-      {/* Top Admin Header */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="mv-technique flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
-              Gestionnaire Médical Avancé
-            </span>
-            <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
-              <Database className="w-3.5 h-3.5 text-emerald-600" />
-              SQLite Persistent
-            </span>
+      {/* EN-TÊTE : qui je suis, où j'en suis, et les deux gestes qui comptent. */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+              Administration
+            </h1>
+            <p className="mv-aide text-xs sm:text-sm text-slate-600 mt-1 max-w-3xl">
+              Trois mots, une fois pour toutes : une <strong className="text-slate-800">séance</strong> est
+              une réunion ; elle porte des <strong className="text-slate-800">votes</strong>, qui forment son
+              ordre du jour ; la <strong className="text-slate-800">table</strong> est l'écran projeté en salle,
+              où l'on présente un vote à la fois.
+            </p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            Administration des séances
-          </h1>
-          <p className="mv-aide text-xs sm:text-sm text-slate-600 mt-1">
-            Gérez les séances, les résolutions à voter, les listes de collèges (CA, CC, Bureau) et l'archivage des procès-verbaux.
-          </p>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={handleNouvelleSeance}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+            >
+              <CalendarPlus className="w-4 h-4" />
+              <span>Nouvelle séance</span>
+            </button>
+
+            <button
+              onClick={onNavigateToTable}
+              className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5"
+            >
+              <Monitor className="w-4 h-4 text-slate-500" />
+              <span>Voir la table</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            onClick={() => handleOpenEditMeeting()}
-            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Créer une nouvelle réunion</span>
-          </button>
+        {/* BANDEAU DE SITUATION : la séance affichée, le vote qui est sur la table.
+            C'est l'ancre de la page — sans lui, on confond les deux niveaux. */}
+        <div className="border-t border-slate-100 bg-slate-50/70 px-6 py-3.5 flex flex-col lg:flex-row lg:items-center gap-x-8 gap-y-3 text-xs">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <Calendar className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[0.625rem] font-bold uppercase tracking-wide text-slate-500">Séance sur la table</div>
+              {seance ? (
+                <div className="text-slate-900 font-semibold truncate">
+                  {seance.title}
+                  <span className="font-mono text-[0.6875rem] text-slate-500 ml-2">{seance.referenceCode}</span>
+                  {seance.closedAt && (
+                    <span className="ml-2 text-[0.625rem] font-bold text-slate-600 bg-slate-200 border border-slate-300 px-1.5 py-0.5 rounded-full">CLOSE</span>
+                  )}
+                </div>
+              ) : (
+                <div className="text-slate-500 italic">Aucune — la salle ne voit rien</div>
+              )}
+            </div>
+          </div>
 
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-slate-700 text-xs font-semibold border border-slate-200 transition flex items-center gap-1.5"
-            title="Importer une liste de votants par copier-coller"
-          >
-            <UploadCloud className="w-4 h-4 text-emerald-600" />
-            <span>Import Rapide</span>
-          </button>
+          <div className="flex items-start gap-2.5 min-w-0">
+            <ListOrdered className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[0.625rem] font-bold uppercase tracking-wide text-slate-500">Ordre du jour</div>
+              <div className="text-slate-900 font-semibold">
+                {nbVotesSeance === 0
+                  ? 'Aucun vote inscrit'
+                  : `${nbVotesSeance} vote${nbVotesSeance > 1 ? 's' : ''}`}
+                {nbVotesSeance > 0 && (
+                  <span className={votesRestants > 0 ? 'text-amber-700 ml-2' : 'text-emerald-700 ml-2'}>
+                    {votesRestants > 0
+                      ? `· ${votesRestants} à voter`
+                      : '· tous clôturés'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
 
-          <button
-            onClick={onNavigateToTable}
-            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5"
-          >
-            <span>Table ovale</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-start gap-2.5 min-w-0">
+            <Monitor className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[0.625rem] font-bold uppercase tracking-wide text-slate-500">Vote présenté</div>
+              {session ? (
+                <div className="text-slate-900 font-semibold truncate">
+                  {rangVoteCourant > 0 && `Vote ${rangVoteCourant} sur ${nbVotesSeance} — `}
+                  {session.title}
+                  <span className={`ml-2 text-[0.625rem] font-bold px-1.5 py-0.5 rounded-full border ${
+                    session.status === 'open'
+                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      : session.status === 'closed'
+                        ? 'bg-slate-200 text-slate-700 border-slate-300'
+                        : 'bg-amber-50 text-amber-900 border-amber-300'
+                  }`}>
+                    {session.status === 'open' ? 'SCRUTIN OUVERT' : session.status === 'closed' ? 'SCRUTIN CLÔTURÉ' : 'SCRUTIN NON OUVERT'}
+                  </span>
+                </div>
+              ) : (
+                <div className="text-slate-500 italic">Aucun</div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Tabs Navigation */}
+      {/* Onglets : quatre sujets, nommés comme on en parle en séance. */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('meetings')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
-            activeTab === 'meetings'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          1. Séances et ordres du jour ({meetings.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('attendance')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
-            activeTab === 'attendance'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <UserCheck className="w-4 h-4" />
-          2. Émargement et procurations
-        </button>
-
-        <button
-          onClick={() => setActiveTab('lists')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
-            activeTab === 'lists'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          3. Collèges et listes ({lists.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('voters')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
-            activeTab === 'voters'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          4. Répertoire des membres ({voters.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
-            activeTab === 'history'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <HistoryIcon className="w-4 h-4" />
-          5. Procès-verbaux ({history.length})
-        </button>
+        {ONGLETS.map(o => (
+          <button
+            key={o.cle}
+            onClick={() => setActiveTab(o.cle)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
+              activeTab === o.cle
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+            title={o.aide}
+          >
+            <o.Icone className="w-4 h-4" />
+            {o.libelle}
+            {o.compte !== undefined && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[0.625rem] font-bold ${
+                activeTab === o.cle ? 'bg-emerald-500/40 text-white' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {o.compte}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Notification banner */}
@@ -534,113 +665,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeTab === 'meetings' && (
         <div className="space-y-6">
           
-          {/* Active Meeting Card */}
-          {session && (
-            <div className={`border-2 rounded-2xl p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-              session.status === 'closed'
-                ? 'bg-slate-100/90 border-slate-300'
-                : 'bg-emerald-50/70 border-emerald-300'
-            }`}>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  {session.status === 'closed' ? (
-                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-white font-mono text-xs font-bold flex items-center gap-1.5">
-                      <Lock className="w-3 h-3 text-slate-300" />
-                      SÉANCE ARCHIVÉE & SCELLÉE
-                    </span>
-                  ) : session.status === 'open' ? (
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-mono text-xs font-bold">
-                      SCRUTIN OUVERT — VOTE EN COURS
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded-md bg-sky-600 text-white font-mono text-xs font-bold">
-                      SÉANCE AFFICHÉE — SCRUTIN PAS ENCORE OUVERT
-                    </span>
-                  )}
-                  <span className="text-xs text-slate-700 font-mono font-semibold">{session.referenceCode}</span>
-                </div>
-                <h3 className="text-base font-bold text-slate-900">
-                  {session.title}
-                </h3>
-                <p className="text-xs text-slate-600 line-clamp-2">
-                  {session.motionText}
-                </p>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-1">
-                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-emerald-600" /> {session.scheduledDate}</span>
-                  <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-emerald-600" /> {session.scheduledTime}</span>
-                  <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-emerald-600" /> {session.location}</span>
-                  <span>• Quorum requis : {session.quorumPct === 0 ? 'Pas de quorum minimum' : `${session.quorumPct}%`}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                {/* PDF Export Button - Grisé tant que la séance n'est pas clôturée */}
-                <button
-                  onClick={() => {
-                    if (session.status === 'closed') {
-                      generateSessionPdfReport(session, voters);
-                    }
-                  }}
-                  disabled={session.status !== 'closed'}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold shadow-xs transition flex items-center gap-1.5 ${
-                    session.status === 'closed'
-                      ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
-                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
-                  }`}
-                  title={
-                    session.status === 'closed'
-                      ? 'Télécharger le Procès-Verbal officiel en PDF'
-                      : 'Le rapport PDF officiel sera disponible une fois la séance clôturée'
-                  }
-                >
-                  <FileDown className={`w-3.5 h-3.5 ${session.status === 'closed' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                  <span>Rapport PDF (PV)</span>
-                </button>
-
-                {session.status !== 'closed' ? (
-                  <button
-                    onClick={() => handleOpenEditMeeting(meetings.find(m => m.id === session.id) || {
-                      id: session.id,
-                      referenceCode: session.referenceCode,
-                      title: session.title,
-                      motionText: session.motionText,
-                      scheduledDate: session.scheduledDate,
-                      scheduledTime: session.scheduledTime,
-                      location: session.location,
-                      status: session.status,
-                      majorityRequired: session.majorityRequired,
-                      quorumPct: session.quorumPct,
-                      isSecret: session.isSecret,
-                      outcome: session.outcome,
-                      createdAt: session.createdAt,
-                      attendeesCount: voters.length,
-                      votesCastCount: 0,
-                      isActiveMeeting: true
-                    })}
-                    className="px-3.5 py-2 rounded-xl bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold transition flex items-center gap-1.5"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    Modifier cette séance
-                  </button>
-                ) : (
-                  <span className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5" title="Séance clôturée et archivée (inaltérable)">
-                    <Lock className="w-3.5 h-3.5 text-slate-600" />
-                    Archive scellée
-                  </span>
-                )}
-
-                <button
-                  onClick={onNavigateToTable}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5"
-                >
-                  <span>Afficher la table</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* List of All Meetings in SQLite */}
+          {/* TOUTES LES SÉANCES */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
@@ -649,329 +674,199 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Toutes les séances
                 </h2>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  <span className="mv-aide">Une seule séance est affichée sur la table à la fois. Cliquez sur la séance active pour l'ouvrir.</span>
+                  <span className="mv-aide">Chaque séance porte son propre ordre du jour. Une seule à la fois est
+                    <strong className="text-slate-800"> sur la table</strong>, l'écran de la salle ; la clore l'en retire, et
+                    ses résultats se relisent alors dans les procès-verbaux.</span>
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => handleOpenEditMeeting()}
+                  onClick={handleNouvelleSeance}
                   className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  Ajouter une séance
+                  <CalendarPlus className="w-3.5 h-3.5" />
+                  Nouvelle séance
                 </button>
               </div>
             </div>
 
-            {/* Filter Pills */}
+            {/* Filtres */}
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setMeetingFilter('all')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                  meetingFilter === 'all'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>Toutes les séances</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
-                  {meetings.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setMeetingFilter('active')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                  meetingFilter === 'active'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>Séance active</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'active' ? 'bg-emerald-700 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
-                  {meetings.filter(m => m.isActiveMeeting && m.status !== 'closed').length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setMeetingFilter('pending')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                  meetingFilter === 'pending'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
-                }`}
-              >
-                <Hourglass className="w-3 h-3 text-amber-600" />
-                <span>En attente</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'pending' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'}`}>
-                  {meetings.filter(m => !m.isActiveMeeting && m.status !== 'closed').length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setMeetingFilter('closed')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                  meetingFilter === 'closed'
-                    ? 'bg-slate-800 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
-                }`}
-              >
-                <Lock className="w-3 h-3 text-slate-500" />
-                <span>Archivées & Scellées</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === 'closed' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
-                  {meetings.filter(m => m.status === 'closed').length}
-                </span>
-              </button>
+              {([
+                ['all', 'Toutes les séances', seances.length],
+                ['ouvertes', 'À tenir', seances.filter(se => !se.closedAt).length],
+                ['closed', 'Closes & scellées', seances.filter(se => Boolean(se.closedAt)).length],
+              ] as const).map(([cle, libelle, compte]) => (
+                <button
+                  key={cle}
+                  onClick={() => setMeetingFilter(cle as typeof meetingFilter)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+                    meetingFilter === cle
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>{libelle}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[0.625rem] ${meetingFilter === cle ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>
+                    {compte}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            {/* Meetings Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-              {meetings
-                .filter(m => {
-                  if (meetingFilter === 'active') return m.isActiveMeeting && m.status !== 'closed';
-                  if (meetingFilter === 'pending') return !m.isActiveMeeting && m.status !== 'closed';
-                  if (meetingFilter === 'closed') return m.status === 'closed';
+              {seances
+                .filter(se => {
+                  if (meetingFilter === 'ouvertes') return !se.closedAt;
+                  if (meetingFilter === 'closed') return Boolean(se.closedAt);
                   return true;
                 })
-                .map((m) => {
-                  const isClosed = m.status === 'closed';
-                  // « Séance active » = celle qui s'affiche sur la table.
-                  // « Scrutin ouvert » = celle qui accepte des bulletins.
-                  // Une séance programmée à 15 h n'est pas en cours à 9 h : elle est
-                  // seulement active, jusqu'à ce que le président ouvre le scrutin.
-                  const isActive = m.isActiveMeeting && !isClosed;
-                  const scrutinOuvert = m.status === 'open' && !isClosed;
-                  const heureDepassee =
-                    !isClosed &&
-                    !scrutinOuvert &&
-                    new Date(`${m.scheduledDate}T${m.scheduledTime || '00:00'}`).getTime() < Date.now();
-                  const isPending = !isActive && !isClosed;
+                .map(se => {
+                  const close = Boolean(se.closedAt);
+                  const scrutinOuvert = se.resolutions.some(r => r.status === 'open');
+                  const votees = se.resolutions.filter(r => r.status === 'closed').length;
 
                   return (
                     <div
-                      key={m.id}
-                      onClick={() => {
-                        // Action when clicking the active card: open table view immediately
-                        if (isActive) {
-                          onNavigateToTable();
-                        }
-                      }}
+                      key={se.id}
+                      onClick={() => { if (se.surLaTable) onNavigateToTable(); }}
                       className={`rounded-2xl p-5 transition-all flex flex-col justify-between gap-4 relative group ${
-                        isActive
-                          ? 'bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 border-2 border-emerald-500 ring-4 ring-emerald-500/10 shadow-md hover:shadow-lg hover:border-emerald-600 cursor-pointer'
-                          : isPending
-                          ? 'bg-white border-2 border-amber-200/90 hover:border-amber-300 shadow-xs'
-                          : 'bg-slate-50/95 border border-slate-300 shadow-2xs'
+                        se.surLaTable
+                          ? 'bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 border-2 border-emerald-500 ring-4 ring-emerald-500/10 shadow-md hover:shadow-lg cursor-pointer'
+                          : close
+                            ? 'bg-slate-50/95 border border-slate-300 shadow-2xs'
+                            : 'bg-white border-2 border-amber-200/90 hover:border-amber-300 shadow-xs'
                       }`}
                     >
-                      {/* Active ribbon prompt */}
-                      {isActive && (
+                      {/* Le bandeau ne signale que ce qui presse : un scrutin ouvert.
+                          Être sur la table est dit par la pastille d'état, sans le répéter. */}
+                      {se.surLaTable && scrutinOuvert && (
                         <div className="absolute -top-3 left-4 right-4 flex items-center justify-between">
-                          <span className={`px-2.5 py-0.5 rounded-full text-white text-[0.625rem] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5 ${scrutinOuvert ? 'bg-emerald-600' : 'bg-sky-600'}`}>
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[0.625rem] font-bold tracking-wide uppercase shadow-xs flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                            {scrutinOuvert ? 'Vote en cours' : 'Séance affichée sur la table'}
-                          </span>
-                          <span className="text-[0.625rem] text-emerald-800 font-semibold bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition">
-                            Cliquer pour ouvrir la table ↗
+                            Vote en cours
                           </span>
                         </div>
                       )}
 
-                      <div className={`space-y-2.5 ${isActive ? 'pt-1' : ''}`}>
+                      <div className={`space-y-2.5 ${se.surLaTable ? 'pt-1' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
                           <span className={`text-[0.6875rem] font-mono px-2 py-0.5 rounded font-bold border ${
-                            isActive 
-                              ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300' 
-                              : isPending
-                              ? 'bg-amber-50 text-amber-900 border-amber-200'
-                              : 'bg-slate-200/90 text-slate-800 border-slate-300'
+                            se.surLaTable
+                              ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300'
+                              : close
+                                ? 'bg-slate-200/90 text-slate-800 border-slate-300'
+                                : 'bg-amber-50 text-amber-900 border-amber-200'
                           }`}>
-                            {m.referenceCode}
+                            {se.referenceCode}
                           </span>
 
-                          {isClosed ? (
-                            <span className="text-[0.625rem] font-bold text-slate-800 bg-slate-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-slate-300 shadow-2xs">
+                          {close ? (
+                            <span className="text-[0.625rem] font-bold text-slate-800 bg-slate-200 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-slate-300"
+                                  title="Séance close et scellée : elle ne revient pas sur la table.">
                               <Lock className="w-3 h-3 text-slate-600" />
-                              ARCHIVÉE & SCELLÉE
+                              SÉANCE CLOSE
                             </span>
-                          ) : scrutinOuvert ? (
-                            <span className="text-[0.625rem] font-bold text-emerald-900 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-emerald-400 shadow-2xs">
-                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-                              SCRUTIN OUVERT
-                            </span>
-                          ) : isActive ? (
-                            <span className="text-[0.625rem] font-bold text-sky-900 bg-sky-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-sky-300 shadow-2xs">
+                          ) : se.surLaTable ? (
+                            <span className="text-[0.625rem] font-bold text-sky-900 bg-sky-100 px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-sky-300"
+                                  title="C'est cette séance que l'écran de la salle présente.">
                               <Monitor className="w-3 h-3 text-sky-700" />
-                              SÉANCE ACTIVE · SCRUTIN FERMÉ
+                              SUR LA TABLE
                             </span>
                           ) : (
-                            <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-full flex items-center gap-1 border border-amber-300">
+                            <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-full flex items-center gap-1 border border-amber-300"
+                                  title="Séance à tenir : elle n'est pas encore sur la table.">
                               <Hourglass className="w-3 h-3 text-amber-700" />
-                              PROGRAMMÉE
-                            </span>
-                          )}
-
-                          {heureDepassee && isActive && (
-                            <span className="text-[0.625rem] font-bold text-amber-900 bg-amber-50 px-2 py-1 rounded-full border border-amber-300">
-                              heure passée
+                              À TENIR
                             </span>
                           )}
                         </div>
 
-                        <div>
-                          <h4 className={`text-sm font-bold line-clamp-2 ${isActive ? 'text-emerald-950' : 'text-slate-900'}`}>
-                            {m.title}
-                          </h4>
-                          <p className="text-xs text-slate-600 line-clamp-2 mt-1">
-                            {m.motionText}
-                          </p>
-                        </div>
+                        <h4 className={`text-sm font-bold line-clamp-2 ${se.surLaTable ? 'text-emerald-950' : 'text-slate-900'}`}>
+                          {se.title}
+                        </h4>
 
-                        <div className={`space-y-1 text-[0.6875rem] pt-2 border-t ${
-                          isActive ? 'border-emerald-200 text-emerald-900' : 'border-slate-200 text-slate-500'
-                        }`}>
+                        <ol className="space-y-0.5 text-[0.6875rem] text-slate-600">
+                          {se.resolutions.slice(0, 4).map(r => (
+                            <li key={r.id} className="flex items-center gap-1.5 truncate">
+                              <span className="font-mono text-slate-400">{r.ordre}.</span>
+                              <span className="truncate">{r.title}</span>
+                              {r.status === 'closed' && r.outcome === 'adopted' && <CheckCircle2 className="w-3 h-3 shrink-0 text-emerald-600" />}
+                              {r.status === 'closed' && r.outcome === 'rejected' && <XCircle className="w-3 h-3 shrink-0 text-rose-500" />}
+                            </li>
+                          ))}
+                          {se.resolutions.length > 4 && (
+                            <li className="text-slate-400 italic">+ {se.resolutions.length - 4} autre(s)…</li>
+                          )}
+                        </ol>
+
+                        <div className={`space-y-1 text-[0.6875rem] pt-2 border-t ${se.surLaTable ? 'border-emerald-200 text-emerald-900' : 'border-slate-200 text-slate-500'}`}>
                           <div className="flex items-center justify-between">
                             <span className="flex items-center gap-1">
-                              <Calendar className={`w-3 h-3 ${isActive ? 'text-emerald-700' : 'text-slate-500'}`} />
-                              {m.scheduledDate} à {m.scheduledTime}
+                              <Calendar className={`w-3 h-3 ${se.surLaTable ? 'text-emerald-700' : 'text-slate-500'}`} />
+                              {se.scheduledDate} à {se.scheduledTime}
                             </span>
-                            <span className="font-medium">
-                              {m.quorumPct === 0 ? 'Pas de quorum min.' : `Quorum ${m.quorumPct}%`}
-                            </span>
+                            <span className="font-medium">{se.selectedAttendeeIds.length} convoqués</span>
                           </div>
                           <div className="flex items-center justify-between font-medium">
-                            <span>{getMajorityLabel(m.majorityRequired)}</span>
-                            <span>{m.attendeesCount} participants</span>
+                            <span>{se.location || 'Lieu non précisé'}</span>
+                            <span>{votees}/{se.resolutions.length} votée(s)</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Card Footer Actions */}
-                      <div 
-                        className={`flex items-center justify-between gap-2 pt-3 border-t ${
-                          isActive ? 'border-emerald-200' : 'border-slate-200/70'
-                        }`}
+                      <div
+                        className={`flex items-center justify-between gap-2 pt-3 border-t ${se.surLaTable ? 'border-emerald-200' : 'border-slate-200/70'}`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center gap-1.5">
-                          {/* PDF Report button - Available when session is closed */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isClosed) {
-                                const dummySession: VotingSession = {
-                                  id: m.id,
-                                  referenceCode: m.referenceCode,
-                                  title: m.title,
-                                  motionText: m.motionText,
-                                  scheduledDate: m.scheduledDate,
-                                  scheduledTime: m.scheduledTime,
-                                  location: m.location,
-                                  status: m.status,
-                                  majorityRequired: m.majorityRequired,
-                                  quorumPct: m.quorumPct,
-                                  isSecret: m.isSecret,
-                                  outcome: m.outcome,
-                                  createdAt: m.createdAt,
-                                  voterStates: {},
-                                  selectedAttendeeIds: m.attendeeIds || []
-                                };
-                                generateSessionPdfReport(dummySession, voters);
-                              }
-                            }}
-                            disabled={!isClosed}
-                            className={`p-1.5 rounded-lg border transition ${
-                              isClosed
-                                ? 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
-                                : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-50'
-                            }`}
-                            title={
-                              isClosed
-                                ? 'Télécharger le PV officiel en PDF'
-                                : 'Rapport PDF disponible uniquement une fois la séance clôturée'
-                            }
-                          >
-                            <FileDown className={`w-3.5 h-3.5 ${isClosed ? 'text-emerald-700' : 'text-slate-300'}`} />
-                          </button>
-
-                          {/* Edit button - Locked if session is archived/closed */}
-                          {!isClosed ? (
+                          {!close ? (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenEditMeeting(m);
-                              }}
+                              onClick={() => handleOpenEditSeance(se)}
                               className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition shadow-2xs"
-                              title="Modifier les détails de la séance"
+                              title="Modifier la date, l'heure, le lieu et le collège convoqué"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           ) : (
-                            <span 
+                            <span
                               className="px-2 py-1 rounded-lg bg-slate-200 text-slate-600 text-[0.625rem] font-semibold flex items-center gap-1 border border-slate-300"
-                              title="Cette séance est clôturée et archivée. Elle est scellée et ne peut être ni modifiée ni supprimée."
+                              title="Séance close et archivée : elle est scellée."
                             >
                               <Lock className="w-3 h-3 text-slate-500" />
                               <span>Scellée</span>
                             </span>
                           )}
 
-                          {/* Duplicate button */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDuplicateMeeting(m.id);
-                            }}
-                            className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition shadow-2xs"
-                            title="Dupliquer cette séance pour un nouveau scrutin"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Delete button - Allowed for pending/open sessions with explicit confirmation */}
-                          {!isClosed && (
+                          {!close && (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Confirmer la suppression définitive de la séance en attente :\n« ${m.title} » (${m.referenceCode}) ?\n\nCette action est irréversible.`)) {
-                                  onDeleteMeeting(m.id);
-                                }
-                              }}
+                              onClick={() => onDeleteSeance?.(se.id)}
                               className="p-1.5 rounded-lg bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 transition shadow-2xs"
-                              title="Supprimer cette séance en attente (confirmation requise)"
+                              title="Supprimer cette séance et son ordre du jour"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
 
-                        {/* Right Action */}
-                        {isActive ? (
+                        {se.surLaTable ? (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigateToTable();
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                            title="Ouvrir la vue Table Ovale pour cette séance active"
+                            onClick={onNavigateToTable}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
                           >
                             <Monitor className="w-3.5 h-3.5 text-emerald-200" />
-                            <span>Ouvrir la table</span>
+                            <span>Voir la table</span>
                             <ArrowRight className="w-3 h-3" />
                           </button>
-                        ) : isPending ? (
+                        ) : !close ? (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSwitchMeeting(m.id);
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                            title="Définir cette séance comme l'unique séance active pour le vote en direct"
+                            onClick={() => onSwitchSeance?.(se.id)}
+                            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
+                            title="Présenter cette séance sur la table : elle remplace celle qui y est"
                           >
                             <Play className="w-3 h-3 fill-current" />
-                            <span>Activer</span>
+                            <span>Mettre sur la table</span>
                           </button>
                         ) : null}
                       </div>
@@ -980,6 +875,220 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 })}
             </div>
           </div>
+
+          {/* ORDRE DU JOUR DE LA SÉANCE AFFICHÉE
+              Une séance porte plusieurs résolutions : on les ajoute, on les
+              réordonne et on passe de l'une à l'autre ici. C'est le seul
+              endroit d'où l'on clôt la séance entière. */}
+          {seance && (
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <ListOrdered className="w-4 h-4 text-emerald-600" />
+                    Ordre du jour — {seance.title}
+                  </h2>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    <span className="mv-aide">
+{seance.scheduledDate} à {seance.scheduledTime} · {seance.location || 'lieu non précisé'}.
+                      Les votes de cette séance, dans l'ordre où on les présentera. Un vote s'ajoute à
+                      tout moment, y compris en pleine séance : l'émargement et les QR codes des membres
+                      ne changent pas.
+                    </span>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {!seance.closedAt && (
+                    <button
+                      onClick={() => onOuvrirAjoutResolution?.()}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Ajouter un vote
+                    </button>
+                  )}
+                  {!seance.closedAt && (
+                    <button
+                      onClick={() => onCloseSeance?.(seance.id)}
+                      className="px-3.5 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold transition flex items-center gap-1.5"
+                      title="Clore la séance : elle est scellée et les liens de vote des membres sont révoqués"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      Clore la séance
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {seance.resolutions.length === 0 && (
+                  <p className="text-xs text-slate-500 italic border border-dashed border-slate-200 rounded-2xl px-4 py-6 text-center">
+                    Aucun vote inscrit à l'ordre du jour. « Ajouter un vote » inscrit le premier point.
+                  </p>
+                )}
+                {seance.resolutions.map((r, i) => {
+                  const courante = r.id === session?.id;
+                  const close = r.status === 'closed';
+                  return (
+                    <div
+                      key={r.id}
+                      className={`rounded-2xl border p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 transition ${
+                        courante
+                          ? 'border-emerald-400 bg-emerald-50/60 ring-2 ring-emerald-500/10'
+                          : close
+                            ? 'border-slate-200 bg-slate-50'
+                            : 'border-slate-200 bg-white hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="w-6 h-6 shrink-0 rounded-lg bg-slate-900 text-white text-[0.6875rem] font-bold flex items-center justify-center">
+                            {r.ordre}
+                          </span>
+                          <span className="font-mono text-[0.6875rem] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            {r.referenceCode}
+                          </span>
+                          {close ? (
+                            <span className={`text-[0.625rem] font-bold px-2 py-0.5 rounded-full border ${
+                              r.outcome === 'adopted'
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : r.outcome === 'rejected'
+                                  ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                  : 'bg-slate-200 text-slate-700 border-slate-300'
+                            }`}>
+                              {r.outcome === 'adopted' ? 'ADOPTÉE' : r.outcome === 'rejected' ? 'REJETÉE' : r.outcome === 'quorum_not_reached' ? 'QUORUM NON ATTEINT' : 'SANS SUITE'}
+                            </span>
+                          ) : r.status === 'open' ? (
+                            <span className="text-[0.625rem] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-400 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                              SCRUTIN OUVERT
+                            </span>
+                          ) : (
+                            <span className="text-[0.625rem] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1">
+                              <Hourglass className="w-3 h-3 text-amber-700" />
+                              SCRUTIN NON OUVERT
+                            </span>
+                          )}
+                          {courante && (
+                            <span className="text-[0.625rem] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-900 border border-sky-300 flex items-center gap-1">
+                              <Monitor className="w-3 h-3 text-sky-700" />
+                              SUR LA TABLE
+                            </span>
+                          )}
+                          {r.isSecret && (
+                            <span className="text-[0.625rem] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300">
+                              Scrutin secret
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900 truncate">{r.title}</h4>
+                        <p className="text-xs text-slate-600 line-clamp-1">{r.motionText || <span className="italic text-slate-400">Aucun texte saisi</span>}</p>
+                        <div className="flex flex-wrap items-center gap-3 text-[0.6875rem] text-slate-500">
+                          <span>{getMajorityLabel(r.majorityRequired)}</span>
+                          <span>{r.quorumPct === 0 ? 'Pas de quorum min.' : `Quorum ${r.quorumPct} %`}</span>
+                          <span>{r.votesCastCount}/{r.attendeesCount} suffrages</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => { if (close) generateSessionPdfReport({ ...(session as any), ...r, voterStates: {}, seanceId: r.seanceId, ordre: r.ordre } as VotingSession, voters); }}
+                          disabled={!close}
+                          className={`p-1.5 rounded-lg border transition ${
+                            close
+                              ? 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs'
+                              : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-50'
+                          }`}
+                          title={close ? 'Télécharger le PV de ce vote' : 'PV disponible une fois le scrutin clôturé'}
+                        >
+                          <FileDown className={`w-3.5 h-3.5 ${close ? 'text-emerald-700' : 'text-slate-300'}`} />
+                        </button>
+
+                        {!close && (
+                          <button
+                            onClick={() => handleOpenEditMeeting(r)}
+                            className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition shadow-2xs"
+                            title="Modifier ce vote"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {i > 0 && !close && (
+                          <button
+                            onClick={() => {
+                              const ids = seance.resolutions.map(x => x.id);
+                              [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                              onReordonnerResolutions?.(seance.id, ids);
+                            }}
+                            className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 transition shadow-2xs"
+                            title="Remonter dans l'ordre du jour"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {!close && seance.resolutions.length > 1 && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Retirer « ${r.title} » de l'ordre du jour ?\n\nCette action est irréversible.`)) {
+                                onDeleteMeeting(r.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 transition shadow-2xs"
+                            title="Retirer ce point de l'ordre du jour"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {!courante ? (
+                          <button
+                            onClick={() => onSwitchResolution?.(r.id)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition flex items-center gap-1.5"
+                            title="Mettre ce vote sur la table (l'écran projeté en salle)"
+                          >
+                            <Play className="w-3 h-3 fill-current" />
+                            Mettre sur la table
+                          </button>
+                        ) : (
+                          <button
+                            onClick={onNavigateToTable}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-1.5"
+                          >
+                            <Monitor className="w-3.5 h-3.5 text-emerald-200" />
+                            Voir la table
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Aucune séance sur la table : c'est l'état normal entre deux
+              réunions, et la page ne doit pas faire semblant du contraire. */}
+          {!seance && (
+            <div className="bg-white rounded-2xl p-8 border border-dashed border-slate-300 text-center space-y-3">
+              <Monitor className="w-8 h-8 text-slate-300 mx-auto" />
+              <h2 className="text-base font-bold text-slate-900">Aucune séance sur la table</h2>
+              <p className="mv-aide text-xs text-slate-600 max-w-xl mx-auto leading-relaxed">
+                L'écran de la salle n'a rien à présenter, et aucun ordre du jour n'est en cours.
+                Mettez une séance à tenir sur la table ci-dessus, ou créez-en une. Une séance close
+                n'y revient pas : ses résultats se relisent dans les procès-verbaux.
+              </p>
+              <button
+                onClick={handleNouvelleSeance}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5"
+              >
+                <CalendarPlus className="w-4 h-4" />
+                Nouvelle séance
+              </button>
+            </div>
+          )}
 
         </div>
       )}
@@ -1014,14 +1123,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {session.referenceCode}
                       </span>
                       <span className="text-xs text-slate-500 font-medium">
-                        Collège électoral actif ({sessionVoters.length} membres)
+                        Collège convoqué : {sessionVoters.length} membres
                       </span>
                     </div>
                     <h2 className="text-lg font-bold text-slate-900 mt-1">
-                      Émargement & Attribution des Pouvoirs (2 max par mandataire)
+                      Émargement de la séance
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Gérez les présences physiques et délégations de vote. Chaque mandataire ne peut détenir que 2 pouvoirs maximum.
+                      Qui est là, qui est absent, qui a donné pouvoir. On émarge une fois pour la séance : cela vaut pour tous ses votes encore ouvrables. Un mandataire détient 2 pouvoirs au maximum.
                     </p>
                   </div>
 
@@ -1038,7 +1147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition flex items-center gap-1.5"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      <span>Tous Présents</span>
+                      <span>Tous présents</span>
                     </button>
 
                     <button
@@ -1063,37 +1172,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Quorum & Presence Metrics Bar */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                    <span className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block">Membres Collège</span>
+                    <span className="text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider block">Convoqués</span>
                     <strong className="text-xl font-bold text-slate-900">{sessionVoters.length}</strong>
-                    <span className="text-[0.6875rem] text-slate-400 block mt-0.5">1 seule liste exclusive</span>
+                    <span className="text-[0.6875rem] text-slate-400 block mt-0.5">membres du collège appelé à voter</span>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200">
-                    <span className="text-[0.6875rem] font-bold text-emerald-800 uppercase tracking-wider block">Présents Physiques</span>
+                    <span className="text-[0.6875rem] font-bold text-emerald-800 uppercase tracking-wider block">Présents</span>
                     <strong className="text-xl font-bold text-emerald-900">{presentCount}</strong>
                     <span className="text-[0.6875rem] text-emerald-700 block mt-0.5">{sessionVoters.length ? Math.round((presentCount / sessionVoters.length) * 100) : 0}% du collège</span>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200">
-                    <span className="text-[0.6875rem] font-bold text-amber-800 uppercase tracking-wider block">Procurations Valides</span>
+                    <span className="text-[0.6875rem] font-bold text-amber-800 uppercase tracking-wider block">Pouvoirs</span>
                     <strong className="text-xl font-bold text-amber-900">{proxyCount}</strong>
                     <span className="text-[0.6875rem] text-amber-700 block mt-0.5">2 max par mandataire</span>
                   </div>
 
                   <div className={`p-3.5 rounded-2xl border ${isQuorumReached ? 'bg-emerald-50/70 border-emerald-300' : 'bg-rose-50/70 border-rose-300'}`}>
                     <span className="text-[0.6875rem] font-bold uppercase tracking-wider block text-slate-700">
-                      Règle de Quorum
+                      Quorum
                     </span>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <strong className={`text-xl font-bold ${isQuorumReached ? 'text-emerald-900' : 'text-rose-900'}`}>
                         {totalEffectiveVoters}
                       </strong>
                       <span className="text-xs text-slate-500 font-medium">
-                        / {sessionVoters.length} voix ({quorumPct === 0 ? 'Sans Quorum' : `${quorumPct}% req.`})
+                        / {sessionVoters.length} voix{quorumPct === 0 ? '' : ` · ${quorumPct} % requis`}
                       </span>
                     </div>
                     <span className={`text-[0.6875rem] font-semibold block mt-0.5 ${isQuorumReached ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {quorumPct === 0 ? '✓ Aucun quorum minimum requis' : isQuorumReached ? '✓ Quorum atteint' : '⚠️ Quorum non atteint'}
+                      {quorumPct === 0 ? 'Aucun quorum minimum requis' : isQuorumReached ? '✓ Quorum atteint' : '⚠️ Quorum non atteint'}
                     </span>
                   </div>
                 </div>
@@ -1104,12 +1213,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                          <th className="py-3 px-4">Siège / Votant</th>
-                          <th className="py-3 px-3">Statut de Présence</th>
-                          <th className="py-3 px-3">Délégation (Mandataire)</th>
-                          <th className="py-3 px-3">Pouvoirs Détenus</th>
-                          <th className="py-3 px-3 text-center">Poids de Vote</th>
-                          <th className="py-3 px-3 text-right">Suffrage Direct</th>
+                          <th className="py-3 px-4">Membre</th>
+                          <th className="py-3 px-3">Présence</th>
+                          <th className="py-3 px-3">Pouvoir donné à</th>
+                          <th className="py-3 px-3">Pouvoirs reçus</th>
+                          <th className="py-3 px-3 text-center">Voix</th>
+                          <th className="py-3 px-3 text-right">Bulletin</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1296,8 +1405,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           })() : (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center space-y-3">
               <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
-              <h3 className="text-base font-bold text-slate-800">Aucune réunion active</h3>
-              <p className="text-xs text-slate-500">Veuillez sélectionner ou créer une réunion dans l'onglet 1.</p>
+              <h3 className="text-base font-bold text-slate-800">Aucune séance affichée</h3>
+              <p className="text-xs text-slate-500">Choisissez ou créez une séance dans l'onglet « Séances et votes ».</p>
             </div>
           )}
 
@@ -1305,17 +1414,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* TAB 3: LISTS & COLLEGES MANAGEMENT (CA, CC, BUREAU, CUSTOM) */}
-      {activeTab === 'lists' && (
+      {activeTab === 'members' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Layers className="w-4 h-4 text-emerald-600" />
-                  Listes Enregistrées & Collèges Électoraux
+                  Collèges
                 </h2>
                 <p className="text-xs text-slate-600">
-                  Sélectionnez un collège pour voir ses membres, ou appliquez-le en un clic à la réunion active.
+                  Un collège est un groupe de membres — CA, CC, Bureau. L'appliquer à la séance affichée, c'est décider qui est convoqué et qui vote.
                 </p>
               </div>
 
@@ -1325,7 +1434,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-slate-700 text-xs font-semibold border border-slate-200 transition flex items-center gap-1.5"
                 >
                   <UploadCloud className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Import Copier-Coller</span>
+                  <span>Importer des membres</span>
                 </button>
 
                 <button
@@ -1333,7 +1442,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Créer une nouvelle liste</span>
+                  <span>Nouveau collège</span>
                 </button>
               </div>
             </div>
@@ -1461,7 +1570,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* TAB 3: VOTERS ROSTER & DIRECTORY */}
-      {activeTab === 'voters' && (
+      {activeTab === 'members' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
           {/* List of members */}
@@ -1470,10 +1579,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Users className="w-4 h-4 text-emerald-600" />
-                  Répertoire Général des Membres Votants
+                  Répertoire des membres
                 </h2>
                 <p className="text-xs text-slate-600">
-                  Configurez les noms, titres, spécialités, emails et numéros de sièges.
+                  Toutes les personnes connues de MediVote. Un membre ne vote que s'il appartient au collège convoqué pour la séance.
                 </p>
               </div>
 
@@ -1518,7 +1627,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </p>
                       )}
                       <p className="text-[0.625rem] text-slate-400">
-                        {voter.department || voter.specialty} • Siège N°{voter.seatNumber} • Poids: {voter.weight}
+                        {voter.department || voter.specialty} • Siège N°{voter.seatNumber}{voter.weight > 1 ? ` • ${voter.weight} voix` : ''}
                       </p>
                     </div>
                   </div>
@@ -1552,7 +1661,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
               {editingVoterId ? <Edit3 className="w-4 h-4 text-amber-500" /> : <Plus className="w-4 h-4 text-emerald-600" />}
-              {editingVoterId ? 'Modifier le Membre' : 'Ajouter un Nouveau Votant'}
+              {editingVoterId ? 'Modifier le membre' : 'Ajouter un membre'}
             </h3>
 
             <form onSubmit={handleSaveVoterSubmit} className="space-y-3 text-xs">
@@ -1564,10 +1673,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     onChange={(e) => setVoterTitle(e.target.value)}
                     className="w-full px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:border-emerald-600 focus:bg-white focus:outline-none"
                   >
-                    <option value="Pr.">Pr.</option>
-                    <option value="Dr.">Dr.</option>
                     <option value="M.">M.</option>
                     <option value="Mme">Mme</option>
+                    <option value="Dr.">Dr.</option>
+                    <option value="Pr.">Pr.</option>
                   </select>
                 </div>
 
@@ -1578,7 +1687,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     value={voterName}
                     onChange={(e) => setVoterName(e.target.value)}
                     required
-                    placeholder="Ex: Claire Martin"
+                    placeholder="Ex : Claire MARTIN"
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:border-emerald-600 focus:bg-white focus:outline-none"
                   />
                 </div>
@@ -1596,30 +1705,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Spécialité / Fonction</label>
+                <label className="block font-semibold text-slate-700 mb-1">Fonction</label>
                 <input
                   type="text"
                   value={voterSpecialty}
                   onChange={(e) => setVoterSpecialty(e.target.value)}
-                  placeholder="Ex: Cardiologie Interventionnelle"
+                  placeholder="Ex : Administrateur, Membre du Bureau"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:border-emerald-600 focus:bg-white focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Pôle / Département</label>
+                <label className="block font-semibold text-slate-700 mb-1">Organisme</label>
                 <input
                   type="text"
                   value={voterDepartment}
                   onChange={(e) => setVoterDepartment(e.target.value)}
-                  placeholder="Ex: Pôle Cœur-Poumons"
+                  placeholder="Ex : SSTI 03, Safran Group"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:border-emerald-600 focus:bg-white focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">N° de Siège</label>
+                  <label className="block font-semibold text-slate-700 mb-1">N° de siège</label>
                   <input
                     type="number"
                     min="1"
@@ -1657,7 +1766,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="ml-auto px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  {isSaving ? 'Enregistrement...' : editingVoterId ? 'Mettre à jour' : 'Ajouter le Votant'}
+                  {isSaving ? 'Enregistrement...' : editingVoterId ? 'Mettre à jour' : 'Ajouter le membre'}
                 </button>
               </div>
             </form>
@@ -1669,14 +1778,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* TAB 4: HISTORY & ARCHIVES */}
       {activeTab === 'history' && (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
-          <div className="border-b border-slate-100 pb-3">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <HistoryIcon className="w-4 h-4 text-emerald-600" />
-              Procès-verbaux des scrutins clôturés
-            </h2>
-            <p className="text-xs text-slate-600">
-              Retrouvez l'historique complet et inaltérable des délibérations adoptées ou rejetées.
-            </p>
+          <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <HistoryIcon className="w-4 h-4 text-emerald-600" />
+                Procès-verbaux
+              </h2>
+              <p className="text-xs text-slate-600">
+                Un procès-verbal par vote clôturé : le résultat y est scellé et ne bouge plus, même si le répertoire change ensuite.
+                <span className="mv-aide"> Pour la recherche, les filtres et l'export, passez par l'écran Archives.</span>
+              </p>
+            </div>
+            <button
+              onClick={() => onNavigateToArchives?.()}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition flex items-center gap-1.5 flex-shrink-0"
+            >
+              <HistoryIcon className="w-3.5 h-3.5 text-slate-500" />
+              <span>Ouvrir les archives</span>
+            </button>
           </div>
 
           {history.length === 0 ? (
@@ -1743,7 +1862,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={() => setSelectedHistorySnapshot(item)}
                       className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1"
                     >
-                      <span>Voir détail du scrutin</span>
+                      <span>Voir le détail</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
 
@@ -1820,6 +1939,156 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* CREATE / EDIT MEETING MODAL */}
+      {/* FORMULAIRE DE SÉANCE — la réunion, pas le vote */}
+      {isSeanceFormOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <form
+            onSubmit={handleSaveSeanceSubmit}
+            className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 my-8 space-y-5 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-xs font-bold text-emerald-800 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 font-mono">
+                  {editingSeanceId ? 'ÉDITION SÉANCE' : 'NOUVELLE SÉANCE'}
+                </span>
+                <h2 className="text-lg font-bold text-slate-900 mt-1">
+                  {editingSeanceId ? 'Coordonnées de la séance' : 'Programmer une séance'}
+                </h2>
+                <p className="mv-aide text-xs text-slate-600 mt-1">
+                  Une séance est la réunion : quand, où, et qui est convoqué. Les votes s'ajoutent
+                  ensuite, un par un, y compris en cours de séance.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSeanceFormOpen(false)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="space-y-1">
+                <span className="text-xs font-semibold text-slate-600">Référence</span>
+                <input
+                  value={seanceRef}
+                  onChange={e => setSeanceRef(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-emerald-500 outline-hidden"
+                />
+              </label>
+              <label className="sm:col-span-2 space-y-1">
+                <span className="text-xs font-semibold text-slate-600">Intitulé de la séance</span>
+                <input
+                  value={seanceTitle}
+                  onChange={e => setSeanceTitle(e.target.value)}
+                  placeholder="Conseil d'administration du 8 septembre"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:border-emerald-500 outline-hidden"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="space-y-1">
+                <span className="text-xs font-semibold text-slate-600">Date</span>
+                <input
+                  type="date"
+                  value={seanceDate}
+                  onChange={e => setSeanceDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:border-emerald-500 outline-hidden"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold text-slate-600">Heure annoncée</span>
+                <input
+                  type="time"
+                  value={seanceTime}
+                  onChange={e => setSeanceTime(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:border-emerald-500 outline-hidden"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold text-slate-600">Lieu</span>
+                <input
+                  list="lieux-medivote"
+                  value={seanceLocation}
+                  onChange={e => setSeanceLocation(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:border-emerald-500 outline-hidden"
+                />
+                <datalist id="lieux-medivote">
+                  {PREDEFINED_LOCATIONS.map(l => <option key={l} value={l} />)}
+                </datalist>
+              </label>
+            </div>
+
+            <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  Collège convoqué ({seanceAttendees.length} membre{seanceAttendees.length > 1 ? 's' : ''})
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {lists.map(l => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => setSeanceAttendees(l.voterIds)}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 text-xs font-semibold text-slate-700 transition"
+                    >
+                      {l.code} ({l.voterIds.length})
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setSeanceAttendees(voters.filter(v => v.isActive).map(v => v.id))}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 transition"
+                  >
+                    Tous
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pt-1">
+                {voters.filter(v => v.isActive).map(v => {
+                  const choisi = seanceAttendees.includes(v.id);
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setSeanceAttendees(prev => choisi ? prev.filter(id => id !== v.id) : [...prev, v.id])}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-xl border text-left text-xs transition ${
+                        choisi ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {choisi ? <CheckSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <Square className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
+                      <span className="truncate">{v.title} {v.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsSeanceFormOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+              >
+                <Save className="w-4 h-4" />
+                <span>{editingSeanceId ? 'Enregistrer la séance' : 'Créer la séance'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {isMeetingFormOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 my-8 space-y-5 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
@@ -1827,10 +2096,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-xs font-bold text-emerald-800 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 font-mono">
-                  {editingMeetingId ? 'ÉDITION RÉUNION' : 'NOUVELLE RÉUNION'}
+                  {editingMeetingId ? 'MODIFIER LE VOTE' : 'NOUVEAU VOTE'}
                 </span>
                 <h2 className="text-lg font-bold text-slate-900 mt-1">
-                  {editingMeetingId ? 'Paramètres de la Délibération' : 'Créer une Nouvelle Réunion de Vote'}
+                  {editingMeetingId ? 'Texte et règles du vote' : 'Un vote de plus à l\'ordre du jour'}
                 </h2>
               </div>
 
@@ -1847,7 +2116,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  Vos modèles de résolution
+                  Vos modèles de texte
                 </span>
                 <button
                   type="button"
@@ -1966,7 +2235,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onChange={(e) => setMotionText(e.target.value)}
                   required
                   rows={4}
-                  placeholder="Rédigez ici le texte officiel de la résolution..."
+                  placeholder="Rédigez ici le texte officiel soumis au vote (la résolution)..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-xs sm:text-sm leading-relaxed focus:border-emerald-600 focus:bg-white focus:outline-none"
                 />
               </div>
@@ -2205,7 +2474,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  {isSaving ? 'Enregistrement…' : 'Enregistrer la réunion'}
+                  {isSaving ? 'Enregistrement…' : editingMeetingId ? 'Enregistrer le vote' : 'Ajouter le vote'}
                 </button>
               </div>
 
@@ -2236,7 +2505,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             <p className="text-xs text-slate-600">
-              Copiez-collez simplement votre chaîne de destinataires ou liste de votants au format standard (ex: <code>"Nom Prénom" &lt;email@domaine.com&gt;; ...</code>).
+              Copiez-collez une liste de destinataires au format standard (ex: <code>"Nom Prénom" &lt;email@domaine.com&gt;; ...</code>).
             </p>
 
             <form onSubmit={handleBulkImportSubmit} className="space-y-4">
@@ -2303,7 +2572,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {editingListId ? 'MODIFICATION LISTE' : 'NOUVELLE LISTE'}
                 </span>
                 <h3 className="text-lg font-bold text-slate-900 mt-1">
-                  {editingListId ? 'Modifier la Liste de Votants' : 'Créer un Collège Électoral'}
+                  {editingListId ? 'Modifier le collège' : 'Nouveau collège'}
                 </h3>
               </div>
               <button

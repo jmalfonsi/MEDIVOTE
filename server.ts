@@ -39,6 +39,17 @@ import {
   purgerAppareilsExpires,
   jetonVotePour,
   contexteVotant,
+  getAllSeances,
+  getSeanceActive,
+  getSeanceById,
+  creerOuMajSeance,
+  basculerSeance,
+  cloturerSeance,
+  supprimerSeance,
+  ajouterResolution,
+  basculerResolution,
+  reordonnerResolutions,
+  seanceDeResolution,
   voterAvecJeton,
   purgerJetonsVoteExpires,
   HEURES_VALIDITE_LIEN,
@@ -77,6 +88,22 @@ function anonymiserSiSecret(
     message: 'Un suffrage a été exprimé (scrutin secret).',
     voterName: undefined,
     voteChoice: undefined,
+  };
+}
+
+/**
+ * L'état que tout écran de pilotage attend après un geste : la résolution
+ * présentée sur la table, la séance qui la porte avec son ordre du jour, et le
+ * reste du registre. On le renvoie d'un bloc pour qu'aucun écran ne travaille
+ * sur une moitié d'état.
+ */
+function etatComplet() {
+  return {
+    session: getActiveSession(),
+    seance: getSeanceActive(),
+    seances: getAllSeances(),
+    voters: getAllVoters(),
+    meetings: getAllMeetings(),
   };
 }
 
@@ -342,8 +369,6 @@ async function startServer() {
   app.post('/api/meetings/create', (req, res) => {
     try {
       const created = createOrUpdateSession(req.body);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
 
       const notif = logEvent({
         type: 'meeting_created',
@@ -354,7 +379,7 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ session: created, voters, meetings });
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -366,8 +391,6 @@ async function startServer() {
       if (!meetingId) return res.status(400).json({ error: 'ID de réunion manquant' });
 
       const activeSession = switchActiveMeeting(meetingId);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
 
       if (activeSession) {
         const notif = logEvent({
@@ -380,19 +403,17 @@ async function startServer() {
         broadcastSSE(notif);
       }
 
-      res.json({ session: activeSession, voters, meetings });
+      res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const conflit = /introuvable|clôturée|réactivée/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
     }
   });
 
   app.delete('/api/meetings/:id', (req, res) => {
     try {
       deleteMeeting(req.params.id);
-      const session = getActiveSession();
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
-      res.json({ success: true, session, voters, meetings });
+      res.json({ success: true, ...etatComplet() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -401,8 +422,6 @@ async function startServer() {
   app.post('/api/meetings/:id/duplicate', (req, res) => {
     try {
       const session = duplicateMeeting(req.params.id);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
 
       if (session) {
         const notif = logEvent({
@@ -415,7 +434,158 @@ async function startServer() {
         broadcastSSE(notif);
       }
 
-      res.json({ session, voters, meetings });
+      res.json(etatComplet());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /* ------------------------------------------------------------------
+   * Séances et résolutions
+   *
+   * La séance est la réunion ; les résolutions sont les points de l'ordre du
+   * jour qu'on y vote. On peut en ajouter à tout moment, y compris pendant la
+   * séance : c'est la raison d'être de ces routes.
+   * ------------------------------------------------------------------ */
+
+  app.get('/api/seances', (req, res) => {
+    try {
+      res.json({ seances: getAllSeances(), seance: getSeanceActive() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Crée une séance, ou corrige ses coordonnées. Elle ne porte aucun suffrage. */
+  app.post('/api/seances/save', (req, res) => {
+    try {
+      const seance = creerOuMajSeance(req.body || {});
+      const creation = !req.body?.id;
+
+      const notif = logEvent({
+        type: creation ? 'meeting_created' : 'info',
+        title: creation ? 'Nouvelle séance' : 'Séance mise à jour',
+        message: `« ${seance.title} » (${seance.referenceCode}) — ${seance.scheduledDate} à ${seance.scheduledTime}, ${seance.location || 'lieu non précisé'}.`,
+        sessionId: seance.resolutionCouranteId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+
+      res.json({ ...etatComplet(), seanceEnregistree: seance });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/seances/switch', (req, res) => {
+    try {
+      const { seanceId } = req.body || {};
+      if (!seanceId) return res.status(400).json({ error: 'Séance non précisée.' });
+      const seance = basculerSeance(String(seanceId));
+
+      const notif = logEvent({
+        type: 'meeting_switched',
+        title: 'Séance affichée',
+        message: `Séance en cours : « ${seance?.title} » (${seance?.referenceCode}).`,
+        sessionId: seance?.resolutionCouranteId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+
+      res.json(etatComplet());
+    } catch (err: any) {
+      const conflit = /introuvable|clôturée/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  /** Clôt la séance : elle est scellée et les liens de vote tombent. */
+  app.post('/api/seances/close', (req, res) => {
+    try {
+      const { seanceId } = req.body || {};
+      if (!seanceId) return res.status(400).json({ error: 'Séance non précisée.' });
+      const seance = cloturerSeance(String(seanceId));
+      sauvegarderBase(`cloture_seance_${seanceId}`);
+
+      const votees = seance.resolutions.filter(r => r.outcome !== 'pending').length;
+      const notif = logEvent({
+        type: 'vote_ended',
+        title: 'Séance close',
+        message: `La séance « ${seance.title} » est close : ${votees} résolution(s) votée(s) sur ${seance.resolutions.length}. Les liens de vote sont révoqués.`,
+        sessionId: seance.resolutionCouranteId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+
+      res.json({ ...etatComplet(), history: getHistory(), seanceClose: seance });
+    } catch (err: any) {
+      const conflit = /introuvable|déjà clôturée|encore ouverte/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/seances/:id', (req, res) => {
+    try {
+      supprimerSeance(req.params.id);
+      res.json({ success: true, ...etatComplet() });
+    } catch (err: any) {
+      const conflit = /scellée|clôturée/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  /** Ajoute une résolution à une séance — avant, ou pendant. */
+  app.post('/api/seances/:id/resolutions', (req, res) => {
+    try {
+      const resolution = ajouterResolution(req.params.id, req.body || {});
+
+      const notif = logEvent({
+        type: 'meeting_created',
+        title: 'Résolution ajoutée',
+        message: `Point n° ${resolution.ordre} de l'ordre du jour : « ${resolution.title} ». Son scrutin reste fermé tant qu'il n'est pas ouvert depuis la table.`,
+        sessionId: resolution.id,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+
+      res.json({ ...etatComplet(), resolution });
+    } catch (err: any) {
+      const conflit = /introuvable|clôturée/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  /** Présente une autre résolution sur la table, sans rien ouvrir ni fermer. */
+  app.post('/api/resolutions/switch', (req, res) => {
+    try {
+      const { resolutionId } = req.body || {};
+      if (!resolutionId) return res.status(400).json({ error: 'Résolution non précisée.' });
+      const resolution = basculerResolution(String(resolutionId));
+
+      const notif = logEvent({
+        type: 'meeting_switched',
+        title: 'Point suivant de l\'ordre du jour',
+        message: `La table présente désormais : « ${resolution?.title} » (point n° ${resolution?.ordre}).`,
+        sessionId: resolution?.id,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+
+      res.json(etatComplet());
+    } catch (err: any) {
+      const conflit = /introuvable/.test(err.message || '');
+      res.status(conflit ? 409 : 500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/resolutions/reorder', (req, res) => {
+    try {
+      const { seanceId, ordreIds } = req.body || {};
+      if (!seanceId || !Array.isArray(ordreIds)) {
+        return res.status(400).json({ error: 'Séance ou ordre manquant.' });
+      }
+      reordonnerResolutions(String(seanceId), ordreIds.map(String));
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -424,10 +594,7 @@ async function startServer() {
   // Session routes
   app.get('/api/session/active', (req, res) => {
     try {
-      const session = getActiveSession();
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
-      res.json({ session, voters, meetings });
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -436,8 +603,6 @@ async function startServer() {
   app.post('/api/session/save', (req, res) => {
     try {
       const saved = createOrUpdateSession(req.body);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
 
       // Enregistrer l'ordre du jour ne change pas l'état du scrutin : le message
       // se contente de rappeler celui-ci, il n'annonce aucune ouverture.
@@ -455,7 +620,10 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ session: saved, voters, meetings });
+      // L'état entier, jamais la seule résolution enregistrée : l'ordre du jour
+      // de l'administration se lit sur `seance`, et renvoyer `session: saved`
+      // remplaçait de surcroît le vote présenté par celui qu'on venait d'éditer.
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -467,8 +635,9 @@ async function startServer() {
       if (!sessionId || !voterId || !vote) {
         return res.status(400).json({ error: 'Paramètres invalides' });
       }
-      const session = updateVoterVote(sessionId, voterId, vote);
-      const voters = getAllVoters();
+      updateVoterVote(sessionId, voterId, vote);
+      const etat = etatComplet();
+      const voters = etat.voters;
       const voter = voters.find(v => v.id === voterId);
 
       const voteLabel = vote === 'for' ? 'POUR (Adoption)' : vote === 'against' ? 'CONTRE (Rejet)' : vote === 'abstain' ? 'ABSTENTION' : 'En attente';
@@ -487,7 +656,7 @@ async function startServer() {
       } as RealtimeNotification, estSecret));
       broadcastSSE(notif);
 
-      res.json({ session, voters });
+      res.json(etat);
     } catch (err: any) {
       // Scrutin fermé ou séance inconnue : erreur de manipulation, pas panne serveur.
       const conflit = /scrutin|clôturée|introuvable/i.test(err.message || '');
@@ -501,8 +670,9 @@ async function startServer() {
       if (!sessionId || !voterId || !presence) {
         return res.status(400).json({ error: 'Paramètres invalides' });
       }
-      const session = updateVoterPresence(sessionId, voterId, presence, proxyToId);
-      const voters = getAllVoters();
+      updateVoterPresence(sessionId, voterId, presence, proxyToId);
+      const etat = etatComplet();
+      const voters = etat.voters;
       const voter = voters.find(v => v.id === voterId);
 
       const presLabel = presence === 'present' ? 'Présent' : presence === 'proxy' ? 'Procuration' : presence === 'excused' ? 'Excusé' : 'Absent';
@@ -518,7 +688,7 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ session, voters });
+      res.json(etat);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -532,22 +702,20 @@ async function startServer() {
       if (!sessionId || typeof ouvert !== 'boolean') {
         return res.status(400).json({ error: 'Séance ou état d\'ouverture manquant' });
       }
-      const session = definirOuvertureScrutin(sessionId, ouvert);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
+      const resolution = definirOuvertureScrutin(sessionId, ouvert);
 
       const notif = logEvent({
         type: ouvert ? 'vote_started' : 'info',
         title: ouvert ? 'Scrutin Ouvert' : 'Scrutin Suspendu',
         message: ouvert
-          ? `Le scrutin est ouvert : les suffrages sont désormais recevables.`
+          ? `Le scrutin est ouvert sur « ${resolution?.title || 'la résolution'} » : les suffrages sont désormais recevables.`
           : `Le scrutin est suspendu : plus aucun suffrage n'est accepté.`,
         sessionId,
         timestamp: new Date().toISOString()
       });
       broadcastSSE(notif);
 
-      res.json({ session, voters, meetings });
+      res.json(etatComplet());
     } catch (err: any) {
       const conflit = /clôturée|introuvable/.test(err.message || '');
       res.status(conflit ? 409 : 500).json({ error: err.message });
@@ -564,13 +732,18 @@ async function startServer() {
       const sessionId = String(req.query.sessionId || '') || getActiveSession()?.id;
       if (!sessionId) return res.status(400).json({ error: 'Aucune séance à équiper de liens de vote.' });
 
-      const seance = getSessionById(sessionId);
+      // Le lien vaut pour la séance entière : il reste valable d'une résolution
+      // à la suivante, et ne tombe qu'à la clôture de la séance.
+      const seanceId = seanceDeResolution(sessionId) || sessionId;
+      const seance = getSeanceById(seanceId);
       if (!seance) return res.status(404).json({ error: 'Séance introuvable.' });
-      if (seance.status === 'closed') return res.json({ sessionId, liens: [] });
+      if (seance.closedAt) return res.json({ sessionId, seanceId, liens: [] });
 
-      const convoques = Object.keys(seance.voterStates);
+      const convoques = seance.selectedAttendeeIds.length > 0
+        ? seance.selectedAttendeeIds
+        : Object.keys(getSessionById(sessionId)?.voterStates || {});
       const liens = await Promise.all(convoques.map(async (voterId) => {
-        const jeton = jetonVotePour(sessionId, voterId);
+        const jeton = jetonVotePour(seanceId, voterId);
         const url = lienDeVote(req, jeton.jeton);
         return {
           voterId,
@@ -581,7 +754,7 @@ async function startServer() {
         };
       }));
 
-      res.json({ sessionId, liens, heuresValidite: HEURES_VALIDITE_LIEN });
+      res.json({ sessionId, seanceId, liens, heuresValidite: HEURES_VALIDITE_LIEN });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -628,8 +801,7 @@ async function startServer() {
   app.post('/api/session/reset', (req, res) => {
     try {
       const { sessionId } = req.body;
-      const session = resetSessionVotes(sessionId);
-      const voters = getAllVoters();
+      resetSessionVotes(sessionId);
 
       const notif = logEvent({
         type: 'vote_reset',
@@ -640,7 +812,7 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ session, voters });
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -656,9 +828,8 @@ async function startServer() {
       const { history: archive, stats } = archiveAndCloseSession(sessionId);
       sauvegarderBase(`cloture_${sessionId}`);
 
-      const voters = getAllVoters();
+      const etat = etatComplet();
       const history = getHistory();
-      const meetings = getAllMeetings();
 
       const outcomeLabel = stats.outcome === 'adopted' 
         ? 'RÉSOLUTION ADOPTÉE' 
@@ -680,7 +851,12 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ ...archive, stats, voters, history, meetings });
+      /*
+       * La réponse porte la résolution clôturée — la table continue de l'afficher,
+       * résultat compris — en plus de l'archive et du reste du registre. Sans elle,
+       * l'écran de séance se retrouvait sans séance du tout.
+       */
+      res.json({ ...etat, archive, stats, history });
     } catch (err: any) {
       // Séance introuvable ou déjà clôturée : c'est une erreur de manipulation,
       // pas une panne du serveur — l'écran doit le dire tel quel.
@@ -702,9 +878,7 @@ async function startServer() {
   app.post('/api/voters/save', (req, res) => {
     try {
       const voter = saveVoter(req.body);
-      const voters = getAllVoters();
-      const session = getActiveSession();
-      res.json({ voter, voters, session });
+      res.json({ voter, ...etatComplet() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -713,9 +887,7 @@ async function startServer() {
   app.delete('/api/voters/:id', (req, res) => {
     try {
       deleteVoter(req.params.id);
-      const voters = getAllVoters();
-      const session = getActiveSession();
-      res.json({ success: true, voters, session });
+      res.json({ success: true, ...etatComplet() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -727,7 +899,6 @@ async function startServer() {
       if (!text) return res.status(400).json({ error: 'Texte d\'importation manquant' });
       const result = importVotersFromText(text, listCode);
       const lists = getAllVoterLists();
-      const session = getActiveSession();
       
       const notif = logEvent({
         type: 'info',
@@ -737,7 +908,7 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ ...result, lists, session });
+      res.json({ ...result, lists, ...etatComplet() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -777,9 +948,7 @@ async function startServer() {
     try {
       const { sessionId, listId } = req.body;
       if (!sessionId || !listId) return res.status(400).json({ error: 'Paramètres manquants' });
-      const session = applyVoterListToSession(sessionId, listId);
-      const voters = getAllVoters();
-      const meetings = getAllMeetings();
+      applyVoterListToSession(sessionId, listId);
 
       const notif = logEvent({
         type: 'list_applied',
@@ -790,7 +959,7 @@ async function startServer() {
       });
       broadcastSSE(notif);
 
-      res.json({ session, voters, meetings });
+      res.json(etatComplet());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -820,11 +989,7 @@ async function startServer() {
   app.post('/api/reset-demo', async (req, res) => {
     try {
       await resetToDemoData();
-      const session = getActiveSession();
-      const voters = getAllVoters();
-      const history = getHistory();
-      const meetings = getAllMeetings();
-      res.json({ session, voters, history, meetings });
+      res.json({ ...etatComplet(), history: getHistory() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

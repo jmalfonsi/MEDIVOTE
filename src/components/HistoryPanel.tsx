@@ -71,6 +71,8 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
 
     const sessionObj: VotingSession = {
       id: item.id,
+      seanceId: item.detailedSnapshot?.session?.seanceId || '',
+      ordre: item.detailedSnapshot?.session?.ordre || 1,
       referenceCode: item.referenceCode,
       title: item.title,
       motionText: item.motionText,
@@ -135,13 +137,13 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
               <Database className="w-3.5 h-3.5 text-emerald-600" />
               Registre officiel
             </span>
-            <span className="text-xs text-slate-500 font-mono">{history.length} scrutins archivés</span>
+            <span className="text-xs text-slate-500 font-mono">{history.length} vote{history.length > 1 ? 's' : ''} archivé{history.length > 1 ? 's' : ''}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            Historique des Délibérations & Procès-Verbaux
+            Archives des procès-verbaux
           </h1>
           <p className="mv-aide text-xs sm:text-sm text-slate-600 mt-1">
-            Consultez les résultats des votes passés, les taux de participation, les quorums et imprimez les procès-verbaux de séance.
+            Tous les votes clôturés, séance par séance : résultat, participation, quorum, et le PV à imprimer.
           </p>
         </div>
 
@@ -159,7 +161,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
             onClick={onNavigateToTable}
             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
           >
-            <span>Table Ovale</span>
+            <span>Voir la table</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

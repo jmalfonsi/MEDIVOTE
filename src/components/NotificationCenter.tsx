@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Bell, 
   CheckCircle2, 
@@ -177,10 +178,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   return (
     <div className="relative inline-block">
       
-      {/* Floating Live Toast at Top-Right */}
-      {activeToast && (
+      {/* Bulle d'événement, en bas à droite : en haut, elle recouvrait les
+          boutons de l'en-tête d'administration pendant plusieurs secondes.
+          Portée dans <body> : la barre du haut porte un `backdrop-blur`, qui
+          fait d'elle le repère des positions fixes de ses descendants — la
+          bulle s'y accrochait au lieu de se poser dans la fenêtre. */}
+      {activeToast && createPortal(
         <div 
-          className="fixed top-20 right-4 z-50 max-w-sm w-full bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-emerald-200 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto"
+          className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-emerald-200 animate-in fade-in slide-in-from-bottom-4 duration-300 pointer-events-auto"
         >
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100 flex-shrink-0">
@@ -208,7 +213,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Bell Trigger Button */}

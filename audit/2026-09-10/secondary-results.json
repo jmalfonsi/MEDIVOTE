@@ -1,0 +1,62 @@
+[
+  {
+    "id": "OPT-01",
+    "label": "Duplication : nouvelle séance, aucun bulletin, scrutin fermé",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-02",
+    "label": "Clôture de séance : scrutin ouvert refusé, puis scellement et point sans suite",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-03",
+    "label": "Suppression d’un collège sans supprimer ses membres",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-04",
+    "label": "Kiosque : le bouton de changement de membre ouvre le sélecteur",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-05",
+    "label": "Scrutin secret : bulletin masqué dans l’API et la notification pendant le vote",
+    "status": "OK",
+    "detail": "Masqué pendant le scrutin ; le bulletin nominatif devient lisible dans l’archive après clôture (comportement actuel)."
+  },
+  {
+    "id": "OPT-06",
+    "label": "Un QR déjà remis ne permet plus de voter après désactivation du membre",
+    "status": "ECHEC",
+    "detail": "Bulletin accepté : HTTP 200"
+  },
+  {
+    "id": "OPT-07",
+    "label": "CSV : une référence contenant # conserve le fichier entier",
+    "status": "ECHEC",
+    "detail": "CSV tronqué : ID,Reference,Titre,Date,Heure,Eligibles,Presents,Pour,Contre,Abstention,Resultat,Regle\nhist_1789014357009,\"AUDIT"
+  },
+  {
+    "id": "OPT-08",
+    "label": "Impression : génération de la vue imprimable de l’archive",
+    "status": "OK",
+    "detail": "PDF du moteur d’impression généré ; pas de test d’imprimante physique."
+  },
+  {
+    "id": "OPT-09",
+    "label": "PDF avec votes pondérés, absents et quorum non atteint",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-10",
+    "label": "Pagination de la feuille d’émargement pour 80 membres",
+    "status": "OK"
+  },
+  {
+    "id": "OPT-11",
+    "label": "Notifications : ouverture, filtres et interrupteur sonore",
+    "status": "OK",
+    "detail": "Interrupteur et filtres testés ; restitution sonore physique non évaluée."
+  }
+]

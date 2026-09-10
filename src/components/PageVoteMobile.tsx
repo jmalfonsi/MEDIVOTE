@@ -22,6 +22,9 @@ interface Contexte {
     status: 'draft' | 'open' | 'closed';
     isSecret: boolean;
   };
+  /** Résolution en cours. Son identifiant change quand la séance passe au point suivant. */
+  resolution: { id: string; ordre: number; total: number; referenceCode: string; title: string };
+  seanceClose: boolean;
   votant: { name: string; title: string; seatNumber: number };
   presence: string;
   aVote: boolean;
@@ -67,7 +70,21 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
         return;
       }
       setErreurLien(null);
-      setContexte(await res.json());
+      const recu: Contexte = await res.json();
+      setContexte(precedent => {
+        /*
+         * Le lien vaut pour la séance entière. Quand elle passe au point suivant
+         * de l'ordre du jour, la page suit d'elle-même : on efface la
+         * confirmation du bulletin précédent, et le membre a de nouveau trois
+         * boutons devant lui — sans avoir à rescanner quoi que ce soit.
+         */
+        if (precedent && precedent.resolution?.id !== recu.resolution?.id) {
+          setConfirmation(null);
+          setErreurVote(null);
+          setAConfirmer(null);
+        }
+        return recu;
+      });
     } catch (_) {
       setErreurLien('Connexion impossible. Vérifiez le réseau de la salle.');
     } finally {
@@ -80,15 +97,16 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
   }, [charger]);
 
   /*
-   * Le téléphone n'a pas de flux temps réel : il se contente d'interroger le
-   * serveur toutes les cinq secondes, le temps que le scrutin s'ouvre. Une fois
-   * le bulletin déposé, plus rien n'est à surveiller.
+   * Le téléphone n'a pas de flux temps réel : il interroge le serveur toutes les
+   * cinq secondes. On continue même après un bulletin déposé — une séance porte
+   * plusieurs résolutions, et c'est ainsi que la page bascule sur la suivante.
+   * Seule la clôture de la séance, ou un lien mort, arrête la surveillance.
    */
   useEffect(() => {
-    if (confirmation || erreurLien) return;
+    if (erreurLien || contexte?.seanceClose) return;
     const minuterie = setInterval(charger, 5000);
     return () => clearInterval(minuterie);
-  }, [charger, confirmation, erreurLien]);
+  }, [charger, erreurLien, contexte?.seanceClose]);
 
   const envoyer = async (choix: Choix) => {
     setEnvoi(true);
@@ -175,6 +193,11 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
             <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-xs font-bold text-emerald-800">
               {seance.referenceCode}
             </span>
+            {contexte.resolution && contexte.resolution.total > 1 && (
+              <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                Point {contexte.resolution.ordre} sur {contexte.resolution.total}
+              </span>
+            )}
             {seance.isSecret && (
               <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
                 Scrutin secret
@@ -238,7 +261,9 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
               </p>
             )}
             <p className="mt-4 text-xs text-slate-500">
-              On ne vote qu'une fois : ce lien est désormais clos. Vous pouvez ranger votre téléphone.
+              {contexte.seanceClose
+                ? 'La séance est close. Vous pouvez ranger votre téléphone.'
+                : "On ne vote qu'une fois sur une résolution. Gardez cette page ouverte : si la séance passe à un autre point de l'ordre du jour, votre bulletin s'y affichera automatiquement."}
             </p>
           </section>
         ) : seance.status !== 'open' ? (
@@ -331,8 +356,8 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
         )}
 
         <p className="px-2 pt-2 text-center text-xs leading-relaxed text-slate-400">
-          Lien personnel, valable pour cette séance uniquement et pour un seul bulletin.
-          Ne le transmettez pas.
+          Lien personnel, valable pour cette séance uniquement, et pour un seul bulletin par
+          résolution. Ne le transmettez pas.
         </p>
       </div>
     </Cadre>

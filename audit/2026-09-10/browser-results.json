@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "id": "HTTP-01",
+      "label": "API de pilotage refusée sans authentification",
+      "status": "OK"
+    },
+    {
+      "id": "UI-01",
+      "label": "Connexion administrateur par le clavier visuel",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-02",
+      "label": "Création et édition des membres",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-03",
+      "label": "Création, édition et application d’un collège",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-04",
+      "label": "Ajout, réorganisation et navigation entre résolutions",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-05",
+      "label": "Création, lecture et suppression d’un modèle",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-06",
+      "label": "Import de deux membres fictifs puis suppression",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-07",
+      "label": "Vote refusé avant ouverture, accepté après ouverture, refusé pendant suspension",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-08",
+      "label": "Liens et QR codes générés pour les quatre membres",
+      "status": "OK"
+    },
+    {
+      "id": "UI-02",
+      "label": "Les quatre vues principales s’affichent",
+      "status": "OK"
+    },
+    {
+      "id": "UI-03",
+      "label": "Les quatre onglets administratifs s’affichent",
+      "status": "OK"
+    },
+    {
+      "id": "UI-04",
+      "label": "Vue simplifiée conservée après rechargement",
+      "status": "OK"
+    },
+    {
+      "id": "UI-05",
+      "label": "Plein écran et navigation par flèches",
+      "status": "OK"
+    },
+    {
+      "id": "UI-06",
+      "label": "Vote mobile et confirmation sur écran étroit",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-09",
+      "label": "Le lien mobile refuse un second bulletin",
+      "status": "OK"
+    },
+    {
+      "id": "UI-07",
+      "label": "Aperçu de clôture cohérent avec les abstentions finales",
+      "status": "ECHEC",
+      "detail": "Le quorum est atteint (4/4), mais l’aperçu annonce QUORUM NON ATTEINT"
+    },
+    {
+      "id": "HTTP-10",
+      "label": "Clôture recalculée par le serveur malgré des statistiques client falsifiées",
+      "status": "OK"
+    },
+    {
+      "id": "UI-08",
+      "label": "Téléchargement PDF du raccourci de l’ordre du jour",
+      "status": "OK"
+    },
+    {
+      "id": "UI-09",
+      "label": "Archives : recherche, aperçu et téléchargement PDF",
+      "status": "OK"
+    },
+    {
+      "id": "UI-10",
+      "label": "Génération des trois PDF témoins avec le générateur de production",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-11",
+      "label": "Notification de vote et suppression du journal",
+      "status": "OK"
+    },
+    {
+      "id": "HTTP-12",
+      "label": "Un scrutin clos ne peut pas être réinitialisé par HTTP",
+      "status": "ECHEC",
+      "detail": "HTTP 200, statut obtenu draft"
+    },
+    {
+      "id": "HTTP-13",
+      "label": "Une archive scellée ne peut pas être supprimée par HTTP",
+      "status": "ECHEC",
+      "detail": "HTTP 200, archive supprimée"
+    },
+    {
+      "id": "HTTP-14",
+      "label": "Le partage d’IP de plusieurs téléphones ne bloque pas le scrutin",
+      "status": "ECHEC",
+      "detail": "5 réponses 429 sur 61 lectures : limite partagée par IP\n\n5 !== 0\n"
+    },
+    {
+      "id": "HTTP-15",
+      "label": "Déconnexion puis refus de l’accès administrateur",
+      "status": "OK"
+    }
+  ],
+  "errors": [
+    "WebSocket closed without opened.",
+    "WebSocket closed without opened.",
+    "WebSocket closed without opened.",
+    "WebSocket closed without opened.",
+    "WebSocket closed without opened."
+  ]
+}

@@ -23,10 +23,13 @@ import {
   Printer,
   Vote as VoteIcon,
   QrCode,
-  Smartphone
+  Smartphone,
+  Plus,
+  ListOrdered,
+  CircleDot
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { VotingSession, Voter, VoteStatistics, VoteChoice, PresenceStatus, LienVote } from '../types';
+import { VotingSession, Voter, VoteStatistics, VoteChoice, PresenceStatus, LienVote, Seance } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { generateSessionPdfReport } from '../utils/pdfExport';
 
@@ -44,6 +47,15 @@ interface OvalTableProps {
   onDefinirOuverture?: (ouvert: boolean) => void;
   /** Liens de vote nominatifs, indexés par membre : le QR à présenter à l'écran. */
   liensVote?: Record<string, LienVote>;
+  /** true quand les liens n'ont pas pu être obtenus : on le dit plutôt que de faire disparaître les QR. */
+  liensIndisponibles?: boolean;
+  onRechargerLiens?: () => void;
+  /** Séance en cours : c'est elle qui porte l'ordre du jour. */
+  seance?: Seance | null;
+  /** Présente un autre point de l'ordre du jour sur la table. */
+  onSwitchResolution?: (resolutionId: string) => void;
+  /** Ajoute un point à l'ordre du jour, en pleine séance au besoin. */
+  onAjouterResolution?: () => void;
   onOpenAdmin: () => void;
   onQuickVoteAllFor: () => void;
   onSimulateRandomVotes: () => void;
@@ -61,6 +73,11 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   onCloseSession,
   onDefinirOuverture,
   liensVote = {},
+  liensIndisponibles = false,
+  onRechargerLiens,
+  seance = null,
+  onSwitchResolution,
+  onAjouterResolution,
   onOpenAdmin,
   onQuickVoteAllFor,
   onSimulateRandomVotes,
@@ -94,23 +111,12 @@ export const OvalTable: React.FC<OvalTableProps> = ({
     prevOutcomeRef.current = session?.outcome;
   }, [session?.outcome]);
 
-  if (!session) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[600px] text-center p-8">
-        <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
-        <h2 className="text-xl font-bold text-slate-900 mb-2">Aucune séance active sélectionnée</h2>
-        <p className="text-sm text-slate-600 max-w-md mb-6">
-          Veuillez configurer ou activer une réunion depuis le panneau d'administration.
-        </p>
-        <button
-          onClick={onOpenAdmin}
-          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition shadow-sm"
-        >
-          Accéder à l'administration
-        </button>
-      </div>
-    );
-  }
+  /*
+   * Parcours de l'ordre du jour. En plein écran, il est piloté depuis la barre
+   * du haut : le pourtour de l'ovale est occupé par les sièges, un panneau
+   * flottant y recouvrirait des votants.
+   */
+  const votesRestants = (seance?.resolutions ?? []).filter(r => r.status !== 'closed').length;
 
   // Placement des sièges autour de la table.
   const isLargeAssembly = totalCount > 18;
@@ -148,6 +154,47 @@ export const OvalTable: React.FC<OvalTableProps> = ({
     }
     return angles;
   }, [totalCount, radiusX, radiusY]);
+
+  if (!session) {
+    // Une séance peut exister sans avoir encore le moindre point à l'ordre du
+    // jour : on propose alors d'en ajouter un, plutôt que de renvoyer l'écran
+    // vers l'administration sans rien dire.
+    const seanceSansResolution = seance && !seance.closedAt;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] text-center p-8">
+        <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+        <h2 className="text-xl font-bold text-slate-900 mb-2">
+          {seanceSansResolution ? `Séance « ${seance!.title} » — aucun vote à l'ordre du jour` : 'Aucune séance active sélectionnée'}
+        </h2>
+        <p className="text-sm text-slate-600 max-w-md mb-6">
+          {seanceSansResolution
+            ? "La séance est ouverte mais ne porte encore aucun vote. Ajoutez le premier point de l'ordre du jour pour pouvoir voter."
+            : "Choisissez une séance à afficher depuis l'administration."}
+        </p>
+        <div className="flex items-center gap-2.5 flex-wrap justify-center">
+          {seanceSansResolution && onAjouterResolution && (
+            <button
+              onClick={onAjouterResolution}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition shadow-sm flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              Ajouter le premier vote
+            </button>
+          )}
+          <button
+            onClick={onOpenAdmin}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm ${
+              seanceSansResolution
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            Accéder à l'administration
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const selectedVoter = voters.find(v => v.id === selectedVoterId);
   const selectedState = selectedVoter ? (session.voterStates[selectedVoter.id] || { presence: 'present', vote: 'pending' }) : null;
@@ -217,8 +264,8 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               {stats.outcome === 'pending' && <Clock className="w-3.5 h-3.5 text-slate-500 animate-spin" />}
               
               <span>
-                {stats.outcome === 'adopted' && 'MOTION ADOPTÉE'}
-                {stats.outcome === 'rejected' && 'MOTION REJETÉE'}
+                {stats.outcome === 'adopted' && 'VOTE ADOPTÉ'}
+                {stats.outcome === 'rejected' && 'VOTE REJETÉ'}
                 {stats.outcome === 'quorum_not_reached' && 'QUORUM NON ATTEINT'}
                 {stats.outcome === 'pending' && (session.status === 'open' ? 'DÉLIBÉRATION EN COURS' : 'SCRUTIN NON OUVERT')}
               </span>
@@ -246,7 +293,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 title={isFullscreen ? 'Quitter le mode plein écran' : 'Afficher la table en plein écran'}
               >
                 {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                <span>{isFullscreen ? 'Quitter Plein Écran' : 'Table Plein Écran'}</span>
+                <span>{isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}</span>
               </button>
             )}
 
@@ -377,6 +424,105 @@ export const OvalTable: React.FC<OvalTableProps> = ({
 
       </div>
 
+      {/* ORDRE DU JOUR — les résolutions de la séance, dans l'ordre.
+          Une séance en porte plusieurs ; on passe de l'une à l'autre ici, et on
+          en ajoute une sans quitter la table, même scrutin en cours. */}
+      {seance && (
+        <div className={`bg-white rounded-2xl border border-slate-200 shadow-xs mb-2.5 px-2.5 py-2 ${isFullscreen ? 'hidden' : ''}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="flex items-center gap-1.5 text-[0.6875rem] font-bold uppercase tracking-wide text-slate-500 shrink-0">
+              <ListOrdered className="w-3.5 h-3.5 text-emerald-600" />
+              Ordre du jour
+              <span className="font-normal normal-case tracking-normal text-slate-400">
+                — {seance.title}
+              </span>
+            </span>
+
+            {/* Ce qu'il reste à soumettre au vote, d'un coup d'œil. */}
+            {votesRestants > 0 ? (
+              <span className="flex items-baseline gap-1.5 shrink-0 rounded-lg bg-amber-50 border border-amber-300 px-2 py-0.5">
+                <span className="text-lg font-black leading-none text-amber-600 tabular-nums">{votesRestants}</span>
+                <span className="text-[0.6875rem] font-bold text-amber-900">
+                  vote{votesRestants > 1 ? 's' : ''} restant{votesRestants > 1 ? 's' : ''}
+                </span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 shrink-0 rounded-lg bg-emerald-50 border border-emerald-300 px-2 py-0.5 text-[0.6875rem] font-bold text-emerald-800">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Tous les votes sont clôturés
+              </span>
+            )}
+
+            <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+              {seance.resolutions.map(r => {
+                const courante = r.id === session.id;
+                const close = r.status === 'closed';
+                const ouverte = r.status === 'open';
+                const adoptee = close && r.outcome === 'adopted';
+                const rejetee = close && (r.outcome === 'rejected' || r.outcome === 'quorum_not_reached');
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => { if (!courante) onSwitchResolution?.(r.id); }}
+                    title={close
+                      ? `${r.title} — scrutin clôturé (${adoptee ? 'adoptée' : rejetee ? 'rejetée' : 'sans suite'})`
+                      : ouverte
+                        ? `${r.title} — scrutin ouvert`
+                        : `${r.title} — scrutin non ouvert`}
+                    className={`flex items-center gap-1.5 max-w-[15rem] px-2 py-1 rounded-xl border text-[0.6875rem] font-semibold transition ${
+                      courante
+                        ? 'bg-emerald-600 border-emerald-700 text-white shadow-2xs'
+                        : close
+                          ? 'bg-slate-100 border-slate-200 text-slate-500 hover:border-slate-400'
+                          : ouverte
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:border-emerald-500'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-400'
+                    }`}
+                  >
+                    <span className={`font-mono ${courante ? 'text-emerald-100' : 'text-slate-400'}`}>
+                      {r.ordre}
+                    </span>
+                    <span className="truncate">{r.title}</span>
+                    {ouverte && <CircleDot className={`w-3 h-3 shrink-0 ${courante ? 'text-white' : 'text-emerald-600'} animate-pulse`} />}
+                    {adoptee && <CheckCircle2 className="w-3 h-3 shrink-0 text-emerald-600" />}
+                    {rejetee && <XCircle className="w-3 h-3 shrink-0 text-rose-500" />}
+                    {close && !adoptee && !rejetee && <Lock className="w-3 h-3 shrink-0 text-slate-400" />}
+                  </button>
+                );
+              })}
+
+              {!seance.closedAt && onAjouterResolution && (
+                <button
+                  onClick={onAjouterResolution}
+                  title="Ajouter un point à l'ordre du jour, même en pleine séance"
+                  className="flex items-center gap-1 px-2 py-1 rounded-xl border border-dashed border-emerald-400 bg-emerald-50/60 text-emerald-800 text-[0.6875rem] font-bold hover:bg-emerald-100 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter un vote
+                </button>
+              )}
+            </div>
+          </div>
+
+          {liensIndisponibles && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[0.6875rem] font-semibold text-amber-900">
+              <span className="flex items-center gap-1.5">
+                <QrCode className="w-3.5 h-3.5 text-amber-700" />
+                Les liens de vote par téléphone n'ont pas pu être préparés. La séance reste pilotable depuis la table.
+              </span>
+              {onRechargerLiens && (
+                <button
+                  onClick={onRechargerLiens}
+                  className="px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold transition"
+                >
+                  Réessayer
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Oval Boardroom Arena */}
       <div className={`relative w-full ${
         isFullscreen 
@@ -428,7 +574,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                   onClick={() => setIsTextExpanded(!isTextExpanded)}
                   className="text-[0.6875rem] font-semibold text-emerald-700 hover:text-emerald-800 mt-1 flex items-center gap-0.5"
                 >
-                  {isTextExpanded ? 'Réduire le texte' : 'Lire l\'intégralité de la résolution...'}
+                  {isTextExpanded ? 'Réduire le texte' : 'Lire l\'intégralité du texte soumis au vote…'}
                 </button>
               )}
             </div>
@@ -520,10 +666,10 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               <button
                 onClick={onOpenAdmin}
                 className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 hover:border-emerald-300 text-xs font-medium transition flex items-center gap-1 shadow-xs"
-                title="Modifier le texte ou les votants"
+                title="Ouvrir l'administration : texte du vote, ordre du jour, émargement"
               >
                 <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                Paramètres Séance
+                Administration
               </button>
             </div>
 

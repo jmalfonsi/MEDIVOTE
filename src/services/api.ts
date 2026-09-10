@@ -8,7 +8,8 @@ import {
   RealtimeNotification,
   VoterList,
   MotionTemplate,
-  LienVote
+  LienVote,
+  Seance
 } from '../types';
 
 /**
@@ -115,24 +116,106 @@ export const auth = {
   },
 };
 
+/** L'état de pilotage renvoyé après chaque geste : rien n'y manque. */
+export interface EtatSeance {
+  session: VotingSession | null;
+  seance: Seance | null;
+  seances: Seance[];
+  voters: Voter[];
+  meetings: MeetingItem[];
+}
+
 export const api = {
+  /* --- Séances et résolutions --------------------------------------- */
+
+  async getSeances(): Promise<{ seances: Seance[]; seance: Seance | null }> {
+    const res = await fetch('/api/seances');
+    return verifier(res, 'Erreur lors du chargement des séances');
+  },
+
+  /** Crée une séance, ou corrige ses coordonnées. */
+  async saveSeance(seance: Partial<Seance> & { attendeeIds?: string[] }): Promise<EtatSeance & { seanceEnregistree: Seance }> {
+    const res = await fetch('/api/seances/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(seance),
+    });
+    return verifier(res, "Erreur lors de l'enregistrement de la séance");
+  },
+
+  async switchSeance(seanceId: string): Promise<EtatSeance> {
+    const res = await fetch('/api/seances/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seanceId }),
+    });
+    return verifier(res, 'Erreur lors du changement de séance');
+  },
+
+  /** Clôt la séance : elle est scellée et les liens de vote sont révoqués. */
+  async closeSeance(seanceId: string): Promise<EtatSeance & { history: SessionHistoryItem[]; seanceClose: Seance }> {
+    const res = await fetch('/api/seances/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seanceId }),
+    });
+    return verifier(res, 'Erreur lors de la clôture de la séance');
+  },
+
+  async deleteSeance(seanceId: string): Promise<EtatSeance & { success: boolean }> {
+    const res = await fetch(`/api/seances/${seanceId}`, { method: 'DELETE' });
+    return verifier(res, 'Erreur lors de la suppression de la séance');
+  },
+
+  /** Ajoute un point à l'ordre du jour — avant la séance, ou pendant. */
+  async ajouterResolution(
+    seanceId: string,
+    resolution: Partial<VotingSession> & { attendeeIds?: string[] }
+  ): Promise<EtatSeance & { resolution: VotingSession }> {
+    const res = await fetch(`/api/seances/${seanceId}/resolutions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(resolution),
+    });
+    return verifier(res, "Erreur lors de l'ajout de la résolution");
+  },
+
+  /** Présente une autre résolution sur la table, sans rien ouvrir ni fermer. */
+  async switchResolution(resolutionId: string): Promise<EtatSeance> {
+    const res = await fetch('/api/resolutions/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolutionId }),
+    });
+    return verifier(res, 'Erreur lors du changement de résolution');
+  },
+
+  async reordonnerResolutions(seanceId: string, ordreIds: string[]): Promise<EtatSeance> {
+    const res = await fetch('/api/resolutions/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seanceId, ordreIds }),
+    });
+    return verifier(res, 'Erreur lors de la réorganisation de l\'ordre du jour');
+  },
+
   /**
    * Liens de vote nominatifs de la séance, un par membre convoqué. Le serveur
    * réutilise les jetons encore valables : réafficher un QR code ne périme pas
    * celui qu'un membre vient de scanner.
    */
-  async getLiensVote(sessionId?: string): Promise<{ liens: LienVote[] }> {
+  async getLiensVote(sessionId?: string): Promise<{ liens: LienVote[]; seanceId?: string }> {
     const requete = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
     const res = await fetch(`/api/liens-vote${requete}`);
     return verifier(res, 'Erreur lors de la préparation des liens de vote');
   },
 
-  async getActiveSession(): Promise<{ session: VotingSession | null; voters: Voter[]; meetings?: MeetingItem[] }> {
+  async getActiveSession(): Promise<EtatSeance> {
     const res = await fetch('/api/session/active');
     return verifier(res, 'Erreur lors du chargement de la session');
   },
 
-  async saveSession(session: Partial<VotingSession> & { attendeeIds?: string[] }): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async saveSession(session: Partial<VotingSession> & { attendeeIds?: string[]; seanceId?: string }): Promise<EtatSeance> {
     const res = await fetch('/api/session/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -141,7 +224,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la sauvegarde de la session');
   },
 
-  async castVote(sessionId: string, voterId: string, vote: VoteChoice): Promise<{ session: VotingSession; voters: Voter[] }> {
+  async castVote(sessionId: string, voterId: string, vote: VoteChoice): Promise<EtatSeance> {
     const res = await fetch('/api/session/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -150,7 +233,7 @@ export const api = {
     return verifier(res, 'Erreur lors de l\'enregistrement du vote');
   },
 
-  async setPresence(sessionId: string, voterId: string, presence: PresenceStatus, proxyToId?: string | null): Promise<{ session: VotingSession; voters: Voter[] }> {
+  async setPresence(sessionId: string, voterId: string, presence: PresenceStatus, proxyToId?: string | null): Promise<EtatSeance> {
     const res = await fetch('/api/session/presence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,7 +243,7 @@ export const api = {
   },
 
   /** Ouvre ou suspend le scrutin. Le président peut ouvrir avant l'heure annoncée. */
-  async definirOuvertureScrutin(sessionId: string, ouvert: boolean): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async definirOuvertureScrutin(sessionId: string, ouvert: boolean): Promise<EtatSeance> {
     const res = await fetch('/api/session/ouverture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -188,7 +271,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la suppression du modèle');
   },
 
-  async resetVotes(sessionId: string): Promise<{ session: VotingSession; voters: Voter[] }> {
+  async resetVotes(sessionId: string): Promise<EtatSeance> {
     const res = await fetch('/api/session/reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -197,7 +280,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la réinitialisation');
   },
 
-  async closeSession(sessionId: string, stats: any): Promise<{ session: VotingSession; history: SessionHistoryItem[]; voters: Voter[]; meetings: MeetingItem[] }> {
+  async closeSession(sessionId: string, stats: any): Promise<EtatSeance & { history: SessionHistoryItem[]; archive: SessionHistoryItem; stats: any }> {
     const res = await fetch('/api/session/close', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -212,7 +295,7 @@ export const api = {
     return verifier(res, 'Erreur lors du chargement des réunions');
   },
 
-  async createMeeting(meetingData: Partial<VotingSession> & { attendeeIds?: string[] }): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async createMeeting(meetingData: Partial<VotingSession> & { attendeeIds?: string[]; seanceId?: string }): Promise<EtatSeance> {
     const res = await fetch('/api/meetings/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -221,7 +304,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la création de la réunion');
   },
 
-  async switchMeeting(meetingId: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async switchMeeting(meetingId: string): Promise<EtatSeance> {
     const res = await fetch('/api/meetings/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -230,12 +313,12 @@ export const api = {
     return verifier(res, 'Erreur lors du changement de réunion');
   },
 
-  async deleteMeeting(id: string): Promise<{ success: boolean; session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async deleteMeeting(id: string): Promise<EtatSeance & { success: boolean }> {
     const res = await fetch(`/api/meetings/${id}`, { method: 'DELETE' });
     return verifier(res, 'Erreur lors de la suppression de la réunion');
   },
 
-  async duplicateMeeting(id: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async duplicateMeeting(id: string): Promise<EtatSeance> {
     const res = await fetch(`/api/meetings/${id}/duplicate`, { method: 'POST' });
     return verifier(res, 'Erreur lors de la duplication de la réunion');
   },
@@ -246,7 +329,7 @@ export const api = {
     return verifier(res, 'Erreur lors du chargement des votants');
   },
 
-  async saveVoter(voter: Partial<Voter> & { name: string }): Promise<{ voter: Voter; voters: Voter[]; session: VotingSession }> {
+  async saveVoter(voter: Partial<Voter> & { name: string }): Promise<EtatSeance & { voter: Voter }> {
     const res = await fetch('/api/voters/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -255,7 +338,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la sauvegarde du votant');
   },
 
-  async deleteVoter(id: string): Promise<{ voters: Voter[]; session: VotingSession }> {
+  async deleteVoter(id: string): Promise<EtatSeance> {
     const res = await fetch(`/api/voters/${id}`, { method: 'DELETE' });
     return verifier(res, 'Erreur lors de la suppression');
   },
@@ -302,7 +385,7 @@ export const api = {
     return verifier(res, 'Erreur lors de la suppression de la liste');
   },
 
-  async applyList(sessionId: string, listId: string): Promise<{ session: VotingSession; voters: Voter[]; meetings: MeetingItem[] }> {
+  async applyList(sessionId: string, listId: string): Promise<EtatSeance> {
     const res = await fetch('/api/lists/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -311,7 +394,7 @@ export const api = {
     return verifier(res, 'Erreur lors de l\'application de la liste');
   },
 
-  async importVoters(text: string, listCode?: string): Promise<{ count: number; voters: Voter[]; lists: VoterList[]; session: VotingSession }> {
+  async importVoters(text: string, listCode?: string): Promise<EtatSeance & { count: number; lists: VoterList[] }> {
     const res = await fetch('/api/voters/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -321,7 +404,7 @@ export const api = {
   },
 
   // Reset
-  async resetDemo(): Promise<{ session: VotingSession; voters: Voter[]; history: SessionHistoryItem[]; meetings: MeetingItem[] }> {
+  async resetDemo(): Promise<EtatSeance & { history: SessionHistoryItem[] }> {
     const res = await fetch('/api/reset-demo', { method: 'POST' });
     return verifier(res, 'Erreur lors de la réinitialisation');
   },

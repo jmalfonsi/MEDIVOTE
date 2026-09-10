@@ -29,7 +29,7 @@ function seance(
   return {
     voters,
     session: {
-      id: 's1', referenceCode: 'CA-TEST', title: 'Test', motionText: '',
+      id: 's1', seanceId: 'seance1', ordre: 1, referenceCode: 'CA-TEST', title: 'Test', motionText: '',
       scheduledDate: '2026-09-01', scheduledTime: '14:30', location: 'Moulins',
       status: options.statut ?? 'open',
       majorityRequired: options.majorite ?? 'simple',

@@ -1,0 +1,126 @@
+   Medivote                  AUDIT#CSV/R1           Ad          Plein écran             21
+
+
+
+
+         Registre officiel      3 votes archivés
+
+
+Archives des procès-verbaux
+PROCÈS-VERBAL DE DÉLIBÉRATION
+MÉDICALE
+                   •                             AUDIT#CSV/R1         Télécharger      Export     Voir la
+                                                                                        CSV Imprimertable
+                                                                          PDF
+Tous les votes clôturés, séance par séance : résultat,
+Contrôle
+participation,CSV
+              quorum, et le PV à imprimer.
+
+
+   Date & Heure               Lieu de Séance             Quorum Constaté      Règle de Vote
+   2026-09-10   à 14:30       Salle dutexte...
+    Rechercher par titre, référence,   Conseil           4/4 (2%)    Tous (3) Majorité simple (Pour
+                                                                                Adoptées            >
+                                                                                                Rejetées
+                                                                              Contre)
+
+
+TEXTE DE LA RÉSOLUTION ADOPTÉE / SOUMISE :
+ AUDIT#CSV/R1       REJETÉE   2026-09-10 • 14:30
+
+  Motion de
+Contrôle CSVvérification.
+Motion de vérification.
+
+   DÉPOUILLEMENT & RÉSULTAT FINAL                                                    RÉSOLUTION REJETÉE
+   0              0              4                               Rapport PDF           Voir PV      Scellée
+  Pour          Contre          Abst.
+
+                         0                               0                                     4
+                  Voix Pour                        Voix Contre                         Abstentions
+
+ COMPLEMENT/R1                   ADOPTÉE      2026-09-10 • 14:30
+
+Contrôle complémentaire
+ÉMARGEMENT DES DÉLIBÉRATEURS AUTOUR DE LA TABLE
+Motion de vérification.
+    Mme Alice AUDIT ()                                                               Présent       ABSTENTION
+
+   1Mme Membre
+           0 fictif B (Collège
+                      3        audit)                            Rapport PDF         Présent
+                                                                                        Voir PV ABSTENTION
+                                                                                                       Scellée
+  Pour          Contre          Abst.
+    Mme Membre fictif C (Collège audit)                                              Présent       ABSTENTION
+
+    Mme Membre fictif D (Collège audit)                                              Présent       ABSTENTION
+ AUDIT-HTTP/R1                   REJETÉE    2026-09-10 • 14:30
+
+Budget de contrôle
+Le conseil le
+ Archivé   approuve le budget.
+              10/09/2026  04:24:32 • Certifié SQLite                                                    Fermer
+
+
+
+                                                             Scrutin Clôturé : RÉSOLUTION REJET… 04:24:32
+                                                             Résultat final : 0 Pour, 0 Contre, 4 Abstention (0
+                                                             % d'adhésion). Dont 4 non-votant(s) présent(s…
+   0          1            3                                    Rapport PDF          Voir PV           Scellée
+  Pour      Contre        Abst.
+
+
+
+
+ PROCÈS-VERBAL DE DÉLIBÉRATION
+ MÉDICALE
+                                            • AUDIT#CSV/R1
+
+ Contrôle CSV
+MediVote — SSTI 03                                   Base locale · synchro directe          • 4 membres au répertoire
+
+
+
+    Date & Heure               Lieu de Séance           Quorum Constaté            Règle de Vote
+    2026-09-10 à 14:30         Salle du Conseil         4/4 (2%)                   Majorité simple (Pour >
+                                                                                   Contre)
+
+
+ TEXTE DE LA RÉSOLUTION ADOPTÉE / SOUMISE :
+
+    Motion de vérification.
+
+
+
+    DÉPOUILLEMENT & RÉSULTAT FINAL                                                RÉSOLUTION REJETÉE
+
+
+                     0                                0                                     4
+              Voix Pour                           Voix Contre                       Abstentions
+
+
+
+ ÉMARGEMENT DES DÉLIBÉRATEURS AUTOUR DE LA TABLE
+
+    Mme Alice AUDIT ()                                                            Présent       ABSTENTION
+
+    Mme Membre fictif B (Collège audit)                                           Présent       ABSTENTION
+
+    Mme Membre fictif C (Collège audit)                                           Présent       ABSTENTION
+
+    Mme Membre fictif D (Collège audit)                                           Présent       ABSTENTION
+
+
+
+
+ Archivé le 10/09/2026 04:24:32 • Certifié SQLite
+
+
+
+
+                                                          Scrutin Clôturé : RÉSOLUTION REJET… 04:24:32
+                                                          Résultat final : 0 Pour, 0 Contre, 4 Abstention (0
+                                                          % d'adhésion). Dont 4 non-votant(s) présent(s…
+

@@ -129,10 +129,32 @@ describe('liens de vote nominatifs', () => {
     expect(() => db.voterAvecJeton(lien.jeton, 'for')).toThrow(/plus valable/i);
   });
 
+  it('garde le lien vivant d’une résolution à la suivante', () => {
+    // Le lien vaut pour la séance : clôturer un point de l'ordre du jour ne doit
+    // pas obliger les membres à rescanner leur QR code pour le point suivant.
+    const lien = db.jetonVotePour(sessionId, membres[0].id);
+    db.definirOuvertureScrutin(sessionId, true);
+    db.voterAvecJeton(lien.jeton, 'for');
+    db.archiveAndCloseSession(sessionId);
+
+    expect(db.lireJetonVote(lien.jeton)).not.toBeNull();
+
+    const seanceId = db.seanceDeResolution(sessionId)!;
+    const suivante = db.ajouterResolution(seanceId, {
+      title: 'Deuxième résolution',
+      motionText: 'Suite de l’ordre du jour.',
+    });
+    db.definirOuvertureScrutin(suivante.id, true);
+
+    expect(() => db.voterAvecJeton(lien.jeton, 'against')).not.toThrow();
+    expect(db.getSessionById(suivante.id)!.voterStates[membres[0].id].vote).toBe('against');
+  });
+
   it('révoque tous les liens à la clôture de la séance', () => {
     db.definirOuvertureScrutin(sessionId, true);
     const lien = db.jetonVotePour(sessionId, membres[0].id);
     db.archiveAndCloseSession(sessionId);
+    db.cloturerSeance(db.seanceDeResolution(sessionId)!);
     expect(db.lireJetonVote(lien.jeton)).toBeNull();
   });
 

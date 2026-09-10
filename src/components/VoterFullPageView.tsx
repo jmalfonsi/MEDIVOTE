@@ -109,15 +109,6 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
     }
   };
 
-  if (!session || !currentVoter) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 space-y-4">
-        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-        <p className="text-sm font-medium text-slate-300">Initialisation du terminal de vote...</p>
-      </div>
-    );
-  }
-
   // Parametric ellipse radius for oval table
   const radiusX = 42;
   const radiusY = 41;
@@ -148,6 +139,15 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
     }
     return angles;
   }, [totalCount, radiusX, radiusY]);
+
+  if (!session || !currentVoter) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 space-y-4">
+        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+        <p className="text-sm font-medium text-slate-300">Initialisation du terminal de vote...</p>
+      </div>
+    );
+  }
 
   const isPresent = currentState?.presence === 'present' || currentState?.presence === 'proxy';
   const hasVoted = currentState && currentState.vote !== 'pending';

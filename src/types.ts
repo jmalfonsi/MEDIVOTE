@@ -61,8 +61,42 @@ export interface VoterSessionState {
   note?: string;
 }
 
+/**
+ * Séance : la réunion elle-même — une date, un lieu, un collège convoqué, un
+ * émargement. Elle porte une ou plusieurs résolutions, qu'on peut lui ajouter
+ * avant comme pendant la séance. Ce sont les résolutions qui se votent ; la
+ * séance, elle, ne se vote pas.
+ */
+export interface Seance {
+  id: string;
+  referenceCode: string; // e.g. "CA-2026-08"
+  title: string;         // e.g. "Conseil d'Administration du 12 septembre"
+  scheduledDate: string; // YYYY-MM-DD
+  scheduledTime: string; // HH:MM
+  location: string;
+  createdAt: string;
+  closedAt?: string | null;
+  /**
+   * Séance présentée sur la table, l'écran de la salle. Une seule à la fois,
+   * et aucune quand toutes sont closes : clore une séance la retire de la
+   * table. « Sur la table » et « encore ouvrable » sont deux choses ; la
+   * seconde se lit sur `closedAt`.
+   */
+  surLaTable: boolean;
+  selectedAttendeeIds: string[];
+  activeListCode?: string;
+  /** Résolution actuellement présentée sur la table (close ou non). */
+  resolutionCouranteId?: string | null;
+  /** Résolutions de la séance, dans l'ordre de l'ordre du jour. */
+  resolutions: MeetingItem[];
+}
+
 export interface VotingSession {
   id: string;
+  /** Séance à laquelle cette résolution appartient. */
+  seanceId: string;
+  /** Rang dans l'ordre du jour de la séance (1, 2, 3…). */
+  ordre: number;
   referenceCode: string; // e.g. "CA-2026-08/R1"
   title: string;
   motionText: string;
@@ -83,6 +117,8 @@ export interface VotingSession {
 
 export interface MeetingItem {
   id: string;
+  seanceId: string;
+  ordre: number;
   referenceCode: string;
   title: string;
   motionText: string;
@@ -98,7 +134,10 @@ export interface MeetingItem {
   closedAt?: string | null;
   attendeesCount: number;
   votesCastCount: number;
+  /** Résolution actuellement présentée sur la table. */
   isActiveMeeting: boolean;
+  /** La séance de cette résolution est-elle celle affichée sur la table ? */
+  seanceActive?: boolean;
   activeListCode?: string;
 }
 

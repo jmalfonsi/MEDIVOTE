@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   VotingSession, 
   Voter, 
@@ -8,9 +8,10 @@ import {
   MeetingItem,
   RealtimeNotification,
   VoterList,
-  LienVote
+  LienVote,
+  Seance
 } from './types';
-import { api, auth, SessionExpiree } from './services/api';
+import { api, auth, SessionExpiree, EtatSeance } from './services/api';
 import { calculateVoteStatistics } from './utils/votingMath';
 import { prechargerLogo } from './utils/pdfExport';
 import { Navbar } from './components/Navbar';
@@ -21,6 +22,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { CloseSessionModal } from './components/CloseSessionModal';
 import { ModeSelectionModal } from './components/ModeSelectionModal';
 import { AdminPinModal } from './components/AdminPinModal';
+import { AjouterResolutionModal } from './components/AjouterResolutionModal';
 import { VoterFullPageView } from './components/VoterFullPageView';
 import { AlertCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 
@@ -34,6 +36,9 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'table' | 'kiosk' | 'admin' | 'history'>('admin');
   const [isFullscreenTable, setIsFullscreenTable] = useState<boolean>(false);
   const [session, setSession] = useState<VotingSession | null>(null);
+  /* Séance en cours et son ordre du jour : la résolution affichée en est un point. */
+  const [seance, setSeance] = useState<Seance | null>(null);
+  const [seances, setSeances] = useState<Seance[]>([]);
   const [voters, setVoters] = useState<Voter[]>([]);
   const [meetings, setMeetings] = useState<MeetingItem[]>([]);
   const [history, setHistory] = useState<SessionHistoryItem[]>([]);
@@ -43,6 +48,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isCloseModalOpen, setIsCloseModalOpen] = useState<boolean>(false);
+  const [isAjoutResolutionOpen, setIsAjoutResolutionOpen] = useState<boolean>(false);
+  /** Dernière résolution demandée, le temps que le serveur réponde. */
+  const cibleResolutionEnVol = useRef<string | null>(null);
   // Tant que le serveur n'a pas reconnu une session administrateur, rien n'est chargé.
   const [sessionOuverte, setSessionOuverte] = useState<boolean>(false);
 
@@ -59,6 +67,20 @@ export default function App() {
    */
   // Incrémenté pour relancer un chargement après une reprise de session.
   const [relance, setRelance] = useState<number>(0);
+
+  /*
+   * Le serveur renvoie l'état de pilotage d'un bloc après chaque geste. On
+   * l'applique tel quel : jamais une moitié d'état, jamais une séance perdue
+   * parce qu'une réponse ne portait pas le champ attendu.
+   */
+  const appliquerEtat = useCallback((etat: Partial<EtatSeance> | null | undefined) => {
+    if (!etat) return;
+    if ('session' in etat) setSession(etat.session ?? null);
+    if ('seance' in etat) setSeance(etat.seance ?? null);
+    if (etat.seances) setSeances(etat.seances);
+    if (etat.voters) setVoters(etat.voters);
+    if (etat.meetings) setMeetings(etat.meetings);
+  }, []);
 
   const [affichageSimplifie, setAffichageSimplifie] = useState<boolean>(() => {
     try {
@@ -116,17 +138,14 @@ export default function App() {
     try {
       setLoading(true);
       setError(null);
-      const [sessionData, historyData, meetingsData, notifsData, listsData] = await Promise.all([
+      const [sessionData, historyData, notifsData, listsData] = await Promise.all([
         api.getActiveSession(),
         api.getHistory(),
-        api.getMeetings(),
         api.getNotifications(),
         api.getLists().catch(() => ({ lists: [] })),
       ]);
-      setSession(sessionData.session);
-      setVoters(sessionData.voters);
+      appliquerEtat(sessionData);
       setHistory(historyData.history);
-      setMeetings(meetingsData.meetings);
       setNotifications(notifsData.notifications);
       setLists(listsData.lists || []);
 
@@ -155,11 +174,15 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedVoterId, sessionOuverte, relance]);
+  }, [selectedVoterId, sessionOuverte, relance, appliquerEtat]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (session && cibleResolutionEnVol.current === session.id) cibleResolutionEnVol.current = null;
+  }, [session?.id]);
 
   // Le logo est chargé dès l'ouverture pour que le procès-verbal puisse le porter
   // sans attendre, y compris lors d'une édition immédiate après la clôture.
@@ -206,14 +229,7 @@ export default function App() {
               data.type === 'meeting_created' ||
               data.type === 'meeting_switched'
             ) {
-              api.getActiveSession().then(res => {
-                setSession(res.session);
-                setVoters(res.voters);
-              }).catch(() => {});
-
-              api.getMeetings().then(res => {
-                setMeetings(res.meetings);
-              }).catch(() => {});
+              api.getActiveSession().then(appliquerEtat).catch(() => {});
             }
           } catch (_) {}
         };
@@ -234,7 +250,7 @@ export default function App() {
       if (eventSource) eventSource.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, []);
+  }, [appliquerEtat]);
 
   // Compute live statistics
   const stats = calculateVoteStatistics(session, voters);
@@ -243,9 +259,7 @@ export default function App() {
   const handleVote = async (voterId: string, vote: VoteChoice) => {
     if (!session) return;
     try {
-      const res = await api.castVote(session.id, voterId, vote);
-      setSession(res.session);
-      setVoters(res.voters);
+      appliquerEtat(await api.castVote(session.id, voterId, vote));
     } catch (err: any) {
       console.error('Vote error:', err);
       alert('Erreur lors du vote: ' + err.message);
@@ -256,9 +270,7 @@ export default function App() {
   const handleSetPresence = async (voterId: string, presence: PresenceStatus, proxyToId?: string | null) => {
     if (!session) return;
     try {
-      const res = await api.setPresence(session.id, voterId, presence, proxyToId);
-      setSession(res.session);
-      setVoters(res.voters);
+      appliquerEtat(await api.setPresence(session.id, voterId, presence, proxyToId));
     } catch (err: any) {
       console.error('Presence error:', err);
       alert('Erreur lors de la mise à jour de présence: ' + err.message);
@@ -271,27 +283,62 @@ export default function App() {
    * encore valables sont réutilisés, si bien qu'un membre ayant déjà scanné
    * garde un lien vivant.
    */
-  const empreinteConvoques = session ? Object.keys(session.voterStates).sort().join(',') : '';
+  const empreinteConvoques = seance ? seance.selectedAttendeeIds.slice().sort().join(',') : '';
+  /*
+   * Un échec de chargement des QR codes ne doit pas être définitif. Avant, une
+   * seule requête ratée — un serveur qui redémarre, une session reprise — les
+   * faisait disparaître des tuiles jusqu'au prochain rechargement de page, sans
+   * rien dire. On réessaie, et on garde trace de l'échec pour l'afficher.
+   */
+  const [liensIndisponibles, setLiensIndisponibles] = useState<boolean>(false);
+  const [relanceLiens, setRelanceLiens] = useState<number>(0);
+  const rechargerLiensVote = useCallback(() => setRelanceLiens(n => n + 1), []);
+
   useEffect(() => {
-    if (!sessionOuverte || !session || session.status === 'closed') {
+    if (!sessionOuverte || !seance || seance.closedAt) {
       setLiensVote({});
+      setLiensIndisponibles(false);
       return;
     }
+
     let annule = false;
-    api
-      .getLiensVote(session.id)
-      .then(res => {
+    let minuterie: ReturnType<typeof setTimeout> | null = null;
+
+    const charger = async (essai: number): Promise<void> => {
+      try {
+        const res = await api.getLiensVote(seance.resolutionCouranteId || seance.id);
         if (annule) return;
         const parVotant: Record<string, LienVote> = {};
         (res.liens || []).forEach(lien => { parVotant[lien.voterId] = lien; });
         setLiensVote(parVotant);
-      })
-      .catch(() => {
-        // Sans QR codes, la séance reste pilotable depuis la table : on n'alerte pas.
-        if (!annule) setLiensVote({});
-      });
-    return () => { annule = true; };
-  }, [sessionOuverte, session?.id, session?.status, empreinteConvoques]);
+        setLiensIndisponibles(false);
+      } catch (err) {
+        if (annule) return;
+        if (err instanceof SessionExpiree) {
+          // La session a pu être reprise entre-temps : on retente une fois.
+          const repris = await auth.estConnecte().catch(() => false);
+          if (!annule && repris && essai < 3) {
+            minuterie = setTimeout(() => void charger(essai + 1), 500);
+            return;
+          }
+        }
+        if (essai < 3) {
+          minuterie = setTimeout(() => void charger(essai + 1), 1500 * essai);
+          return;
+        }
+        // Sans QR codes, la séance reste pilotable depuis la table : on ne bloque
+        // rien, mais on cesse de faire croire qu'ils n'existent pas.
+        setLiensVote({});
+        setLiensIndisponibles(true);
+      }
+    };
+
+    void charger(1);
+    return () => {
+      annule = true;
+      if (minuterie) clearTimeout(minuterie);
+    };
+  }, [sessionOuverte, seance?.id, seance?.closedAt, seance?.resolutionCouranteId, empreinteConvoques, relance, relanceLiens]);
 
   // Reset votes
   // Ouvre ou suspend le scrutin. Sans effacer aucun suffrage : c'est le sens même
@@ -299,10 +346,7 @@ export default function App() {
   const handleDefinirOuverture = useCallback(async (ouvert: boolean) => {
     if (!session) return;
     try {
-      const res = await api.definirOuvertureScrutin(session.id, ouvert);
-      setSession(res.session);
-      setVoters(res.voters);
-      if (res.meetings) setMeetings(res.meetings);
+      appliquerEtat(await api.definirOuvertureScrutin(session.id, ouvert));
     } catch (err: any) {
       if (err instanceof SessionExpiree) {
         setSessionOuverte(false);
@@ -320,9 +364,7 @@ export default function App() {
       'Le scrutin sera refermé : il faudra le rouvrir pour un nouveau tour.'
     )) return;
     try {
-      const res = await api.resetVotes(session.id);
-      setSession(res.session);
-      setVoters(res.voters);
+      appliquerEtat(await api.resetVotes(session.id));
     } catch (err: any) {
       alert('Erreur: ' + err.message);
     }
@@ -339,9 +381,7 @@ export default function App() {
           await api.castVote(session.id, v.id, 'for');
         }
       }
-      const refreshed = await api.getActiveSession();
-      setSession(refreshed.session);
-      setVoters(refreshed.voters);
+      appliquerEtat(await api.getActiveSession());
     } catch (err: any) {
       alert('Erreur: ' + err.message);
     }
@@ -360,9 +400,7 @@ export default function App() {
           await api.castVote(session.id, v.id, randomChoice);
         }
       }
-      const refreshed = await api.getActiveSession();
-      setSession(refreshed.session);
-      setVoters(refreshed.voters);
+      appliquerEtat(await api.getActiveSession());
     } catch (err: any) {
       alert('Erreur: ' + err.message);
     }
@@ -373,45 +411,129 @@ export default function App() {
     if (!session) return;
     try {
       const res = await api.closeSession(session.id, stats);
-      setSession(res.session);
+      appliquerEtat(res);
       setHistory(res.history);
-      setVoters(res.voters);
       setIsCloseModalOpen(false);
-      
-      // Refresh meetings list to update statuses
-      const mRes = await api.getMeetings();
-      setMeetings(mRes.meetings);
     } catch (err: any) {
       alert('Erreur lors de la clôture: ' + err.message);
     }
   };
 
+  /* --- Séance et ordre du jour --------------------------------------- */
+
+  /** Ajoute un point à l'ordre du jour. Utilisable en pleine séance. */
+  const handleAjouterResolution = async (
+    donnees: Partial<VotingSession> & { attendeeIds?: string[] }
+  ) => {
+    const seanceCible = seance?.id || session?.seanceId;
+    if (!seanceCible) throw new Error('Aucune séance en cours.');
+    const res = await api.ajouterResolution(seanceCible, donnees);
+    appliquerEtat(res);
+  };
+
+  /** Présente un autre point de l'ordre du jour, sans rien ouvrir ni fermer. */
+  const handleSwitchResolution = useCallback(async (resolutionId: string) => {
+    cibleResolutionEnVol.current = resolutionId;
+    try {
+      appliquerEtat(await api.switchResolution(resolutionId));
+    } catch (err: any) {
+      alert('Erreur lors du changement de résolution : ' + err.message);
+    }
+  }, [appliquerEtat]);
+
+  /**
+   * Avance ou recule d'un point dans l'ordre du jour, points déjà votés compris.
+   *
+   * Le changement fait un aller-retour par le serveur : deux appuis rapprochés
+   * partiraient sinon du même point de départ et n'avanceraient que d'un. On
+   * retient donc la dernière cible demandée tant que la séance n'a pas rattrapé.
+   */
+  const handleDeplacerResolution = useCallback((pas: number) => {
+    const points = seance?.resolutions || [];
+    if (points.length === 0) return;
+    const depart = cibleResolutionEnVol.current || session?.id;
+    const i = points.findIndex(r => r.id === depart);
+    const cible = i === -1 ? undefined : points[i + pas];
+    if (cible) void handleSwitchResolution(cible.id);
+  }, [seance, session?.id, handleSwitchResolution]);
+
+  /*
+   * En plein écran, les touches ← et → font défiler l'ordre du jour. C'est ce
+   * qui permet de piloter la séance avec une télécommande de présentation, sans
+   * revenir au clavier ni sortir de l'affichage de la salle.
+   */
+  useEffect(() => {
+    if (!isFullscreenTable || currentTab !== 'table') return;
+    const auClavier = (e: KeyboardEvent) => {
+      const cible = e.target as HTMLElement | null;
+      if (cible && /^(INPUT|TEXTAREA|SELECT)$/.test(cible.tagName)) return;
+      if (isCloseModalOpen || isAjoutResolutionOpen || isModeModalOpen || isAdminPinModalOpen) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); handleDeplacerResolution(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); handleDeplacerResolution(1); }
+    };
+    window.addEventListener('keydown', auClavier);
+    return () => window.removeEventListener('keydown', auClavier);
+  }, [isFullscreenTable, currentTab, handleDeplacerResolution, isCloseModalOpen, isAjoutResolutionOpen, isModeModalOpen, isAdminPinModalOpen]);
+
+  const handleSaveSeance = async (donnees: Partial<Seance> & { attendeeIds?: string[] }) => {
+    const res = await api.saveSeance(donnees);
+    appliquerEtat(res);
+  };
+
+  const handleSwitchSeance = async (seanceId: string) => {
+    try {
+      appliquerEtat(await api.switchSeance(seanceId));
+    } catch (err: any) {
+      alert('Erreur lors du changement de séance : ' + err.message);
+    }
+  };
+
+  /** Clôt la séance entière : elle est scellée et les liens de vote tombent. */
+  const handleCloseSeance = async (seanceId: string) => {
+    const cible = seances.find(se => se.id === seanceId);
+    const restantes = (cible?.resolutions || []).filter(r => r.status !== 'closed').length;
+    if (!window.confirm(
+      `Clore définitivement la séance « ${cible?.title || ''} » ?\n\n` +
+      (restantes > 0
+        ? `${restantes} résolution(s) n'ont pas été soumises au vote : elles seront classées sans suite.\n\n`
+        : '') +
+      'Les liens de vote des membres seront révoqués et la séance ne pourra plus être rouverte.'
+    )) return;
+    try {
+      const res = await api.closeSeance(seanceId);
+      appliquerEtat(res);
+      setHistory(res.history);
+    } catch (err: any) {
+      alert('Erreur lors de la clôture de la séance : ' + err.message);
+    }
+  };
+
+  const handleDeleteSeance = async (seanceId: string) => {
+    const cible = seances.find(se => se.id === seanceId);
+    if (!window.confirm(
+      `Supprimer définitivement la séance « ${cible?.title || ''} » et ses ${cible?.resolutions.length || 0} résolution(s) ?\n\nCette action est irréversible.`
+    )) return;
+    try {
+      appliquerEtat(await api.deleteSeance(seanceId));
+    } catch (err: any) {
+      alert('Erreur : ' + err.message);
+    }
+  };
+
   // Save/Update session (from admin)
   const handleSaveSession = async (sessionData: Partial<VotingSession> & { attendeeIds?: string[] }) => {
-    const res = await api.saveSession(sessionData);
-    setSession(res.session);
-    setVoters(res.voters);
-    const mRes = await api.getMeetings();
-    setMeetings(mRes.meetings);
+    appliquerEtat(await api.saveSession(sessionData));
   };
 
   // Create new meeting
   const handleCreateMeeting = async (meetingData: Partial<VotingSession> & { attendeeIds?: string[] }) => {
-    const res = await api.createMeeting(meetingData);
-    setSession(res.session);
-    setVoters(res.voters);
-    const mRes = await api.getMeetings();
-    setMeetings(mRes.meetings);
+    appliquerEtat(await api.createMeeting(meetingData));
   };
 
   // Switch active meeting
   const handleSwitchMeeting = async (meetingId: string) => {
     try {
-      const res = await api.switchMeeting(meetingId);
-      setSession(res.session);
-      setVoters(res.voters);
-      const mRes = await api.getMeetings();
-      setMeetings(mRes.meetings);
+      appliquerEtat(await api.switchMeeting(meetingId));
     } catch (err: any) {
       alert('Erreur lors du changement de séance: ' + err.message);
     }
@@ -420,13 +542,7 @@ export default function App() {
   // Delete meeting
   const handleDeleteMeeting = async (meetingId: string) => {
     try {
-      const res = await api.deleteMeeting(meetingId);
-      if (res.session) {
-        setSession(res.session);
-        setVoters(res.voters);
-      }
-      const mRes = await api.getMeetings();
-      setMeetings(mRes.meetings);
+      appliquerEtat(await api.deleteMeeting(meetingId));
     } catch (err: any) {
       alert('Erreur: ' + err.message);
     }
@@ -435,11 +551,7 @@ export default function App() {
   // Duplicate meeting
   const handleDuplicateMeeting = async (meetingId: string) => {
     try {
-      const res = await api.duplicateMeeting(meetingId);
-      setSession(res.session);
-      setVoters(res.voters);
-      const mRes = await api.getMeetings();
-      setMeetings(mRes.meetings);
+      appliquerEtat(await api.duplicateMeeting(meetingId));
     } catch (err: any) {
       alert('Erreur lors de la duplication: ' + err.message);
     }
@@ -447,17 +559,13 @@ export default function App() {
 
   // Save voter (from admin)
   const handleSaveVoter = async (voterData: Partial<Voter> & { name: string }) => {
-    const res = await api.saveVoter(voterData);
-    setVoters(res.voters);
-    if (res.session) setSession(res.session);
+    appliquerEtat(await api.saveVoter(voterData));
   };
 
   // Delete voter (from admin)
   const handleDeleteVoter = async (id: string) => {
     if (!window.confirm('Supprimer ce membre du collège des votants ?')) return;
-    const res = await api.deleteVoter(id);
-    setVoters(res.voters);
-    if (res.session) setSession(res.session);
+    appliquerEtat(await api.deleteVoter(id));
   };
 
   // Delete history item
@@ -481,10 +589,7 @@ export default function App() {
     if (!session) return;
     try {
       setLoading(true);
-      const res = await api.applyList(session.id, listId);
-      setSession(res.session);
-      setVoters(res.voters);
-      if (res.meetings) setMeetings(res.meetings);
+      appliquerEtat(await api.applyList(session.id, listId));
     } catch (err: any) {
       alert('Erreur lors de l\'application de la liste: ' + err.message);
     } finally {
@@ -518,9 +623,8 @@ export default function App() {
     try {
       setLoading(true);
       const res = await api.importVoters(text, listCode);
-      setVoters(res.voters);
+      appliquerEtat(res);
       setLists(res.lists);
-      if (res.session) setSession(res.session);
       alert(`${res.count} votants importés avec succès !`);
     } catch (err: any) {
       alert('Erreur lors de l\'importation: ' + err.message);
@@ -535,11 +639,8 @@ export default function App() {
     try {
       setLoading(true);
       const res = await api.resetDemo();
-      setSession(res.session);
-      setVoters(res.voters);
+      appliquerEtat(res);
       setHistory(res.history);
-      const mRes = await api.getMeetings();
-      setMeetings(mRes.meetings);
       const lRes = await api.getLists().catch(() => ({ lists: [] }));
       setLists(lRes.lists);
     } catch (err: any) {
@@ -646,6 +747,12 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         session={session}
+        seance={seance}
+        seances={seances}
+        onSwitchSeance={handleSwitchSeance}
+        onSwitchResolution={handleSwitchResolution}
+        onDeplacerResolution={handleDeplacerResolution}
+        onAjouterResolution={() => setIsAjoutResolutionOpen(true)}
         meetings={meetings}
         stats={stats}
         notifications={notifications}
@@ -697,6 +804,11 @@ export default function App() {
             onResetVotes={handleResetVotes}
             onDefinirOuverture={handleDefinirOuverture}
             liensVote={liensVote}
+            liensIndisponibles={liensIndisponibles}
+            onRechargerLiens={rechargerLiensVote}
+            seance={seance}
+            onSwitchResolution={handleSwitchResolution}
+            onAjouterResolution={() => setIsAjoutResolutionOpen(true)}
             onCloseSession={() => setIsCloseModalOpen(true)}
             onOpenAdmin={() => setCurrentTab('admin')}
             onQuickVoteAllFor={handleQuickVoteAllFor}
@@ -718,6 +830,14 @@ export default function App() {
         {currentTab === 'admin' && (
           <AdminPanel
             session={session}
+            seance={seance}
+            seances={seances}
+            onSwitchSeance={handleSwitchSeance}
+            onSaveSeance={handleSaveSeance}
+            onCloseSeance={handleCloseSeance}
+            onDeleteSeance={handleDeleteSeance}
+            onSwitchResolution={handleSwitchResolution}
+            onOuvrirAjoutResolution={() => setIsAjoutResolutionOpen(true)}
             voters={voters}
             meetings={meetings}
             history={history}
@@ -738,6 +858,7 @@ export default function App() {
             onImportVoters={handleImportVoters}
             onResetDemo={handleResetDemo}
             onNavigateToTable={() => setCurrentTab('table')}
+            onNavigateToArchives={() => setCurrentTab('history')}
           />
         )}
 
@@ -760,6 +881,14 @@ export default function App() {
         onSelectAdmin={handleSelectAdmin}
       />
 
+      {/* Ajout d'un point à l'ordre du jour, y compris en pleine séance */}
+      <AjouterResolutionModal
+        isOpen={isAjoutResolutionOpen}
+        seance={seance}
+        onClose={() => setIsAjoutResolutionOpen(false)}
+        onAjouter={handleAjouterResolution}
+      />
+
       {/* Close & Archive Modal */}
       {session && (
         <CloseSessionModal
@@ -777,14 +906,12 @@ export default function App() {
         <footer className="border-t border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-center text-slate-500 text-xs flex flex-col sm:flex-row items-center justify-between max-w-[1800px] mx-auto w-full gap-2 mt-auto">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span className="mv-technique font-medium text-slate-700">Système de Vote Médical Certifié • Medivote Pro</span>
+            <span className="font-medium text-slate-700">MediVote — SSTI 03</span>
           </div>
-          <div className="flex items-center gap-3 font-mono text-[0.6875rem] text-slate-500">
-            <span className="mv-technique">Persistance SQLite Active</span>
+          <div className="flex items-center gap-3 text-[0.6875rem] text-slate-500">
+            <span className="mv-technique font-mono">Base locale · synchro directe</span>
             <span className="mv-technique">•</span>
-            <span className="mv-technique">SSE Synchro Directe</span>
-            <span className="mv-technique">•</span>
-            <span>{voters.filter(v => v.isActive).length} votants</span>
+            <span>{voters.filter(v => v.isActive).length} membres au répertoire</span>
           </div>
         </footer>
       )}

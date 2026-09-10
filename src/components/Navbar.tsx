@@ -21,15 +21,28 @@ import {
   Eye,
   EyeOff,
   Lock,
-  Unlock
+  Unlock,
+  ListOrdered,
+  CircleDot,
+  ChevronLeft,
+  ChevronRight,
+  XCircle
 } from 'lucide-react';
-import { VotingSession, VoteStatistics, MeetingItem, RealtimeNotification } from '../types';
+import { VotingSession, VoteStatistics, MeetingItem, RealtimeNotification, Seance } from '../types';
 import { NotificationCenter } from './NotificationCenter';
 
 interface NavbarProps {
   currentTab: 'table' | 'kiosk' | 'admin' | 'history';
   onTabChange: (tab: 'table' | 'kiosk' | 'admin' | 'history') => void;
   session: VotingSession | null;
+  /** Séance affichée, avec son ordre du jour. */
+  seance?: Seance | null;
+  seances?: Seance[];
+  onSwitchSeance?: (seanceId: string) => void;
+  onSwitchResolution?: (resolutionId: string) => void;
+  /** Avance (+1) ou recule (-1) d'un point dans l'ordre du jour. */
+  onDeplacerResolution?: (pas: number) => void;
+  onAjouterResolution?: () => void;
   meetings: MeetingItem[];
   stats: VoteStatistics;
   notifications: RealtimeNotification[];
@@ -52,6 +65,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
   onTabChange,
   session,
+  seance = null,
+  seances = [],
+  onSwitchSeance,
+  onSwitchResolution,
+  onDeplacerResolution,
+  onAjouterResolution,
   meetings,
   stats,
   notifications,
@@ -72,6 +91,25 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [isMeetingDropdownOpen, setIsMeetingDropdownOpen] = useState(false);
 
+  /*
+   * Position dans l'ordre du jour, et ce qu'il reste à voter. Le parcours couvre
+   * TOUS les points, clôturés compris : on doit pouvoir revenir montrer un
+   * résultat déjà acquis.
+   */
+  const points = seance?.resolutions ?? [];
+  const rang = session ? points.findIndex(r => r.id === session.id) : -1;
+  const precedente = rang > 0 ? points[rang - 1] : null;
+  const suivante = rang >= 0 && rang < points.length - 1 ? points[rang + 1] : null;
+  /** Points dont le scrutin n'est pas encore clôturé. */
+  const votesRestants = points.filter(r => r.status !== 'closed').length;
+
+  /*
+   * En plein écran, le parcours de l'ordre du jour prend la place laissée par le
+   * bandeau de la table. Les onglets se réduisent alors à leurs icônes : on ne
+   * change pas d'écran pendant qu'on préside, et les libellés déborderaient.
+   */
+  const ongletsCompacts = isFullscreenTable && currentTab === 'table' && points.length > 0;
+
   return (
     <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-3 sm:px-5 py-1.5 transition-all shadow-2xs">
       <div className="max-w-[1800px] mx-auto flex items-center justify-between gap-2 sm:gap-4">
@@ -87,69 +125,129 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-sm tracking-tight text-slate-900 leading-none">
-                  Medivote
-                </span>
-                <span className="mv-technique inline-flex items-center px-1.5 py-0.2 rounded text-[0.5625rem] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                  SQLite
+                  Medivote V1.0
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Quick Meeting Selector Dropdown in Navbar */}
-          {meetings.length > 0 && (
+          {/* Sélecteur de séance, puis de point à l'ordre du jour. Une séance en
+              porte plusieurs : le premier niveau choisit la réunion, le second
+              la résolution qu'on présente sur la table. */}
+          {(seances.length > 0 || meetings.length > 0) && (
             <div className="relative">
               <button
                 onClick={() => setIsMeetingDropdownOpen(!isMeetingDropdownOpen)}
                 className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 transition"
+                title={seance ? `${seance.title} — point n° ${session?.ordre || 1} sur ${seance.resolutions.length}` : 'Séances'}
               >
                 <Calendar className="w-3 h-3 text-emerald-600" />
-                <span className="max-w-[120px] sm:max-w-[150px] truncate">{session?.referenceCode || 'Séances'}</span>
+                <span className="max-w-[120px] sm:max-w-[150px] truncate">{session?.referenceCode || seance?.referenceCode || 'Séances'}</span>
+                {seance && seance.resolutions.length > 1 && (
+                  <span className="px-1 rounded bg-emerald-100 text-emerald-800 font-mono text-[0.5625rem]">
+                    {session?.ordre || 1}/{seance.resolutions.length}
+                  </span>
+                )}
                 <ChevronDown className="w-3 h-3 text-slate-400" />
               </button>
 
               {isMeetingDropdownOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsMeetingDropdownOpen(false)} />
-                  <div className="absolute left-0 mt-1.5 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-2 space-y-1 animate-in fade-in zoom-in-95">
-                    <div className="px-2 py-1 text-[0.625rem] font-bold text-slate-400 uppercase tracking-wider">
-                      Séances enregistrées ({meetings.length})
-                    </div>
-                    <div className="max-h-60 overflow-y-auto space-y-1">
-                      {meetings.map(m => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            setIsMeetingDropdownOpen(false);
-                            if (m.status === 'closed') {
-                              onTabChange('history');
-                            } else {
-                              onSwitchMeeting(m.id);
-                            }
-                          }}
-                          className={`w-full p-2 rounded-xl text-left text-xs transition flex items-start justify-between gap-2 ${
-                            m.isActiveMeeting
-                              ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200'
-                              : 'hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          <div className="truncate">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-[0.625rem] text-emerald-700 block">{m.referenceCode}</span>
-                              {m.status === 'closed' && (
-                                <span className="text-[0.5625rem] px-1.5 py-0.2 rounded bg-slate-200 text-slate-600 font-semibold">
-                                  Archive
+                  <div className="absolute left-0 mt-1.5 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-2 space-y-2 animate-in fade-in zoom-in-95">
+
+                    {seance && (
+                      <div className="space-y-1">
+                        <div className="px-2 py-1 text-[0.625rem] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <ListOrdered className="w-3 h-3 text-emerald-600" />
+                          Ordre du jour — {seance.title}
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {seance.resolutions.map(r => (
+                            <button
+                              key={r.id}
+                              onClick={() => {
+                                setIsMeetingDropdownOpen(false);
+                                if (r.id !== session?.id) onSwitchResolution?.(r.id);
+                              }}
+                              className={`w-full p-2 rounded-xl text-left text-xs transition flex items-start justify-between gap-2 ${
+                                r.id === session?.id
+                                  ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200'
+                                  : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <div className="truncate">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[0.625rem] text-slate-400">n° {r.ordre}</span>
+                                  <span className="font-mono text-[0.625rem] text-emerald-700">{r.referenceCode}</span>
+                                  {r.status === 'closed' && (
+                                    <span className="text-[0.5625rem] px-1.5 py-0.2 rounded bg-slate-200 text-slate-600 font-semibold">
+                                      {r.outcome === 'adopted' ? 'Adoptée' : r.outcome === 'rejected' ? 'Rejetée' : 'Close'}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="truncate block font-semibold">{r.title}</span>
+                              </div>
+                              {r.status === 'open' && <CircleDot className="w-3 h-3 text-emerald-600 mt-1 shrink-0 animate-pulse" />}
+                            </button>
+                          ))}
+                        </div>
+                        {!seance.closedAt && onAjouterResolution && (
+                          <button
+                            onClick={() => {
+                              setIsMeetingDropdownOpen(false);
+                              onAjouterResolution();
+                            }}
+                            className="w-full py-1.5 px-2 rounded-lg text-center text-xs font-semibold text-emerald-700 hover:bg-emerald-50 border border-dashed border-emerald-300 transition flex items-center justify-center gap-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Ajouter un vote à cette séance
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {seances.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-slate-100">
+                        <div className="px-2 py-1 text-[0.625rem] font-bold text-slate-400 uppercase tracking-wider">
+                          Séances enregistrées ({seances.length})
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {seances.map(se => (
+                            <button
+                              key={se.id}
+                              onClick={() => {
+                                setIsMeetingDropdownOpen(false);
+                                if (se.closedAt) onTabChange('history');
+                                else if (!se.surLaTable) onSwitchSeance?.(se.id);
+                              }}
+                              className={`w-full p-2 rounded-xl text-left text-xs transition flex items-start justify-between gap-2 ${
+                                se.surLaTable
+                                  ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200'
+                                  : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <div className="truncate">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[0.625rem] text-emerald-700">{se.referenceCode}</span>
+                                  {se.closedAt && (
+                                    <span className="text-[0.5625rem] px-1.5 py-0.2 rounded bg-slate-200 text-slate-600 font-semibold">
+                                      Close
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="truncate block font-semibold">{se.title}</span>
+                                <span className="text-[0.625rem] text-slate-500">
+                                  {se.scheduledDate} • {se.resolutions.length} résolution{se.resolutions.length > 1 ? 's' : ''}
                                 </span>
-                              )}
-                            </div>
-                            <span className="truncate block font-semibold">{m.title}</span>
-                          </div>
-                          {m.isActiveMeeting && (
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                              </div>
+                              {se.surLaTable && <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="pt-1 border-t border-slate-100">
                       <button
                         onClick={() => {
@@ -158,7 +256,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         }}
                         className="w-full py-1.5 px-2 rounded-lg text-center text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition flex items-center justify-center gap-1"
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Settings className="w-3.5 h-3.5" />
                         Gérer les séances (Admin)
                       </button>
                     </div>
@@ -168,6 +266,101 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
         </div>
+
+        {/* PARCOURS DE L'ORDRE DU JOUR EN PLEIN ÉCRAN
+            En plein écran, le bandeau des résolutions de la table disparaît, et
+            le pourtour de l'ovale est occupé par les sièges : c'est ici, dans la
+            seule bande libre de l'écran, que le président passe d'un vote à
+            l'autre — flèches, ou touches ← et →. */}
+        {isFullscreenTable && currentTab === 'table' && seance && seance.resolutions.length > 0 && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => onDeplacerResolution?.(-1)}
+              disabled={!precedente}
+              aria-label="Point précédent de l'ordre du jour"
+              title={precedente ? `Point précédent : ${precedente.title}  (touche ←)` : "Premier point de l'ordre du jour"}
+              className={`flex items-center justify-center rounded-lg border h-8 w-8 transition ${
+                precedente
+                  ? 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-800 shadow-2xs'
+                  : 'bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed'
+              }`}
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-1 shadow-2xs">
+              <div className="leading-tight">
+                <div className="text-[0.5625rem] font-bold uppercase tracking-wider text-slate-400">
+                  Ordre du jour
+                </div>
+                <div className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">
+                  Point {session?.ordre ?? 1} <span className="font-normal text-slate-400">sur</span> {seance.resolutions.length}
+                </div>
+              </div>
+
+              <div className="h-7 w-px bg-slate-200" />
+
+              {/* Le chiffre qui doit se lire du fond de la salle. */}
+              {votesRestants > 0 ? (
+                <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                  <span className="text-2xl font-black leading-none text-amber-600 tabular-nums">
+                    {votesRestants}
+                  </span>
+                  <span className="text-xs font-bold text-slate-700">
+                    vote{votesRestants > 1 ? 's' : ''} restant{votesRestants > 1 ? 's' : ''}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 whitespace-nowrap text-emerald-700">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span className="text-xs font-bold">Tous les votes sont clôturés</span>
+                </div>
+              )}
+
+              {/* Repères : ce qui est voté, ce qui reste. Cliquables. */}
+              <div className="hidden lg:flex items-center gap-1 pl-1 border-l border-slate-200">
+                {seance.resolutions.map(r => {
+                  const courante = r.id === session?.id;
+                  const close = r.status === 'closed';
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => { if (!courante) onSwitchResolution?.(r.id); }}
+                      title={`${r.ordre}. ${r.title} — ${close ? 'scrutin clôturé' : r.status === 'open' ? 'scrutin ouvert' : 'scrutin non ouvert'}`}
+                      className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[0.6875rem] font-bold transition ${
+                        courante
+                          ? 'bg-emerald-600 text-white'
+                          : close
+                            ? 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      <span className="tabular-nums">{r.ordre}</span>
+                      {close && r.outcome === 'adopted' && <CheckCircle2 className={`w-3 h-3 ${courante ? 'text-white' : 'text-emerald-600'}`} />}
+                      {close && (r.outcome === 'rejected' || r.outcome === 'quorum_not_reached') && <XCircle className={`w-3 h-3 ${courante ? 'text-white' : 'text-rose-500'}`} />}
+                      {close && r.outcome === 'pending' && <Lock className={`w-3 h-3 ${courante ? 'text-white' : 'text-slate-400'}`} />}
+                      {r.status === 'open' && <CircleDot className={`w-3 h-3 ${courante ? 'text-white' : 'text-emerald-600'} animate-pulse`} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              onClick={() => onDeplacerResolution?.(1)}
+              disabled={!suivante}
+              aria-label="Point suivant de l'ordre du jour"
+              title={suivante ? `Point suivant : ${suivante.title}  (touche →)` : "Dernier point de l'ordre du jour"}
+              className={`flex items-center justify-center rounded-lg border h-8 w-8 transition ${
+                suivante
+                  ? 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-800 shadow-2xs'
+                  : 'bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed'
+              }`}
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         {/* Navigation Tabs */}
         <nav className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs font-medium overflow-x-auto">
@@ -181,8 +374,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Settings className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Admin & Votants</span>
-            <span className="sm:hidden">Admin</span>
+            {!ongletsCompacts && <span className="hidden sm:inline">Administration</span>}
+            {!ongletsCompacts && <span className="sm:hidden">Admin</span>}
           </button>
 
           <button
@@ -195,8 +388,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Vote className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Table Ovale</span>
-            <span className="sm:hidden">Table</span>
+            {!ongletsCompacts && <span className="hidden sm:inline">Table</span>}
+            {!ongletsCompacts && <span className="sm:hidden">Table</span>}
           </button>
 
           <button
@@ -209,8 +402,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Kiosque Votant</span>
-            <span className="sm:hidden">Kiosque</span>
+            {!ongletsCompacts && <span className="hidden sm:inline">Kiosque</span>}
+            {!ongletsCompacts && <span className="sm:hidden">Kiosque</span>}
           </button>
 
           <button
@@ -223,8 +416,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Archives</span>
-            <span className="sm:hidden">Archives</span>
+            {!ongletsCompacts && <span className="hidden sm:inline">Archives</span>}
+            {!ongletsCompacts && <span className="sm:hidden">Archives</span>}
           </button>
         </nav>
 
@@ -283,7 +476,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Maximize2 className="w-3.5 h-3.5 text-emerald-600" />
               )}
               <span className="hidden md:inline">
-                {isFullscreenTable && currentTab === 'table' ? 'Quitter Plein Écran' : 'Table Plein Écran'}
+                {isFullscreenTable && currentTab === 'table' ? 'Quitter le plein écran' : 'Plein écran'}
               </span>
             </button>
           )}

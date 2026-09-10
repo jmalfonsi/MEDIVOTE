@@ -1,0 +1,164 @@
+[
+  {
+    "id": "CALC-01",
+    "label": "Majorités : 4 règles × 125 répartitions, y compris égalités et abstentions",
+    "status": "OK"
+  },
+  {
+    "id": "CALC-02",
+    "label": "Quorum atteint exactement au seuil et refus en dessous",
+    "status": "OK"
+  },
+  {
+    "id": "CALC-03",
+    "label": "Clôture : abstentions assimilées et détail nominatif concordants",
+    "status": "OK"
+  },
+  {
+    "id": "CALC-04",
+    "label": "Une convocation explicitement vide contient zéro inscrit",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n\n34 !== 0\n"
+  },
+  {
+    "id": "CALC-05",
+    "label": "Sans ligne d’émargement, compteurs des présents et non-votants cohérents",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n\n0 !== 4\n"
+  },
+  {
+    "id": "POU-01",
+    "label": "Deux pouvoirs maximum et auto-procuration refusée",
+    "status": "OK"
+  },
+  {
+    "id": "POU-02",
+    "label": "Propagation du vote du mandataire, avec poids propres des mandants",
+    "status": "OK"
+  },
+  {
+    "id": "POU-03",
+    "label": "Pouvoir sans mandataire refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "POU-04",
+    "label": "Pouvoir vers un absent refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "POU-05",
+    "label": "Pouvoir vers un membre non convoqué refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "POU-06",
+    "label": "Cycle de pouvoirs refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "POU-07",
+    "label": "Le départ du mandataire retire ses pouvoirs des représentés",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n\n1 !== 0\n"
+  },
+  {
+    "id": "POU-08",
+    "label": "Pouvoir attribué après le vote : bulletin aligné sur celui du mandataire",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n\n'pending' !== 'for'\n"
+  },
+  {
+    "id": "PRES-01",
+    "label": "Une valeur de présence inconnue est refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "PRES-02",
+    "label": "Émargement partagé sans introduire de non-convoqué dans une autre résolution",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ {\n+   note: null,\n+   presence: 'absent',\n+   proxyToId: null,\n+   vote: 'pending',\n+   votedAt: null,\n+   voterId: 'audit_b'\n+ }\n- undefined\n"
+  },
+  {
+    "id": "VOTE-01",
+    "label": "Vote administratif d’un mandant refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "VOTE-02",
+    "label": "Vote administratif d’un absent refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "VOTE-03",
+    "label": "Vote administratif d’un non-convoqué refusé",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "VOTE-04",
+    "label": "Valeur de bulletin invalide refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-01",
+    "label": "Modification directe d’un scrutin clos refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-02",
+    "label": "Modification d’émargement sur scrutin clos refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-03",
+    "label": "Remise à zéro d’un scrutin clos refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-04",
+    "label": "Suppression d’un scrutin clos refusée",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-05",
+    "label": "Le registre annoncé inaltérable refuse la suppression d’une archive",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "CLOSE-06",
+    "label": "Un scrutin jamais ouvert ne produit pas un résultat voté",
+    "status": "ECHEC",
+    "detail": "Missing expected exception."
+  },
+  {
+    "id": "ARCH-01",
+    "label": "Le pourcentage de quorum reste identique après relecture de l’archive",
+    "status": "ECHEC",
+    "detail": "Expected values to be strictly equal:\n\n2 !== 50\n"
+  },
+  {
+    "id": "ARCH-02",
+    "label": "Les archives gardent leurs membres et résultats après édition du répertoire",
+    "status": "OK"
+  },
+  {
+    "id": "PDF-01",
+    "label": "Le raccourci PV de l’ordre du jour conserve le décompte archivé",
+    "status": "ECHEC",
+    "detail": "Archive : 2 pour / 1 contre / 0 abstention ; raccourci : 0 / 0 / 4\n\n0 !== 2\n"
+  }
+]
