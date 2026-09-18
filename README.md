@@ -96,8 +96,7 @@ celles qui restent à tenir, celles qui sont closes.
 ## Retirer un membre du répertoire
 
 La suppression d'un membre ne se limite pas à sa fiche : elle le retire aussi des
-collèges, des convocations de chaque séance et de chacun de ses votes, des
-émargements, et **révoque son lien de vote nominatif**. Un membre qui lui avait
+collèges et des convocations et émargements encore modifiables, et **révoque son lien de vote nominatif**. Un membre qui lui avait
 donné pouvoir redevient simplement absent. Les **procès-verbaux déjà archivés ne
 bougent pas** : chacun porte sa propre copie des votants et des suffrages, et
 c'est lui qui fait foi.
@@ -134,7 +133,36 @@ peut ouvrir un scrutin par effet de bord. `server/__tests__/ouvertureScrutin.tes
 et `server/__tests__/seancesResolutions.test.ts` le vérifient chemin par chemin.
 
 Corollaire : une remise à zéro referme le scrutin. Elle efface les suffrages,
-elle ne décide pas d'un nouveau tour.
+elle ne décide pas d'un nouveau tour. Elle est réservée aux scrutins non clôturés.
+Une résolution clôturée ne peut plus être modifiée, vidée ou supprimée ; pour
+voter à nouveau, créer un nouveau vote. Les archives ne sont pas supprimables
+par l'API. Une séance contenant un vote clôturé ne peut pas être supprimée.
+
+L'ouverture est mémorisée (`openedAt`) : un vote suspendu doit être clôturé avant
+la séance. Seuls les points jamais ouverts sont classés sans suite. Une liste de
+convoqués explicitement vide reste vide, y compris après navigation.
+
+Un pouvoir exige un mandataire actif, convoqué et présent, avec deux mandats au
+maximum. Son attribution reprend immédiatement le bulletin du mandataire s'il a
+déjà voté ; son départ invalide les pouvoirs reçus. Les poids personnels sont
+additionnés pour les suffrages ; le quorum compte les membres, pas les poids.
+
+## Fidélité des procès-verbaux
+
+Les trois exports (table, ordre du jour, Archives) utilisent la copie figée à la
+clôture : modifier ou supprimer un membre du répertoire ne change pas un ancien
+PV. Sans cette copie, l'export signale que le détail est indisponible.
+Les textes longs et les feuilles d'émargement sont paginés, avec poids personnels,
+mandataires, quorum en pourcentage et en membres, heure de clôture et pagination.
+L'impression depuis l'aperçu isole le document des écrans et notifications.
+
+Au démarrage, les anciennes métadonnées de quorum erronées sont réparées depuis
+le pourcentage conservé dans leur copie archivée, lorsqu'il existe. Cette
+réparation est idempotente et ne modifie aucun bulletin ni snapshot. Les rapports
+ne revendiquent pas de certification cryptographique.
+
+Le bilan des corrections et leurs preuves figurent dans
+[audit/2026-09-10/corrections/BILAN.md](audit/2026-09-10/corrections/BILAN.md).
 
 ## Configuration
 
@@ -163,23 +191,31 @@ remplacé, mais doublé.
 | Garantie | Mise en œuvre |
 | --- | --- |
 | Un membre, un lien | Jeton de 24 octets tiré au hasard, lié à un couple (séance, membre). |
+| Premier téléphone détenteur | La première page qui ouvre le lien revendique le bulletin. Le serveur conserve seulement l'empreinte SHA-256 de sa clé locale ; tout autre téléphone reçoit un refus 423. |
+| Un téléphone, un bulletin | Un même appareil ne peut pas récupérer le lien d'un autre membre dans la même séance. |
 | Un seul bulletin **par résolution** | Le suffrage déjà exprimé sur la résolution en cours fait foi : toute nouvelle tentative est refusée sans le modifier. |
 | Un scan pour toute la séance | Le lien vaut pour la séance entière. Le téléphone suit l'ordre du jour de lui-même : au point suivant, le membre a de nouveau son bulletin, sans rescanner. |
-| Valable un jour | Échéance à 24 h, et révocation de tous les liens à la clôture de la **séance** — pas à celle d'une résolution. |
+| Validité glissante | Même QR tant que la table de séance reste active : son échéance est repoussée de 24 h à chaque actualisation. Révocation à la clôture de la **séance**. |
+| Reprise administrateur | « Libérer » permet à un nouveau téléphone de revendiquer le QR existant. « Nouveau QR » révoque l'ancien lien et génère un nouveau jeton. |
 | Pouvoirs comptés | Le vote du mandataire est propagé à ses procurations, comme depuis la table. |
 | Recevabilité | Le serveur vérifie l'ouverture du scrutin et l'émargement : un membre absent, excusé, ou ayant donné pouvoir ne peut pas déposer de bulletin. |
 | Scrutin secret | Le téléphone n'affiche jamais le sens du bulletin déposé, et la notification de séance reste anonyme. |
 
-Ces règles sont couvertes par `server/__tests__/jetonsVote.test.ts`.
+Ces règles sont couvertes par `server/__tests__/jetonsVote.test.ts` et les tests
+de régression. Les limites de requêtes sont indépendantes pour chaque lien et
+pour les lectures/dépôts, afin que les téléphones partageant le réseau de la salle
+ne consomment pas mutuellement leur quota. La désactivation d'un membre révoque
+ses liens et empêche tout nouveau bulletin.
 
 Si les QR codes ne peuvent pas être préparés (serveur redémarré, session reprise),
 l'écran de séance le **dit** et propose de réessayer, au lieu de les faire
 disparaître des tuiles sans un mot. Le chargement est retenté seul jusqu'à trois
 fois avant d'en arriver là.
 
-**Le QR code n'est affiché que sur l'écran de la salle** : l'obtenir suppose d'y
-être. C'est ce qui tient lieu de contrôle de présence, la page de vote étant par
-construction accessible sans code administrateur.
+**Le QR code n'est affiché que sur l'écran de la salle.** Le verrouillage garantit
+qu'après sa première récupération, seul le même navigateur peut continuer à
+l'utiliser. Sans code personnel, l'identité physique de la première personne qui
+scanne reste contrôlée par l'organisation de la salle.
 
 ## Exploitation
 

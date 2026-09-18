@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Le QR affiché se renouvelle à son échéance sans changer de point",
+    "status": "OK"
+  },
+  {
+    "name": "Une erreur temporaire du réseau mobile ne bloque pas définitivement le lien",
+    "status": "OK"
+  },
+  {
+    "name": "Un lien expiré demande un nouveau scan et permet une nouvelle vérification",
+    "status": "OK"
+  }
+]

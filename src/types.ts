@@ -6,6 +6,7 @@ export type SessionStatus = 'draft' | 'open' | 'closed';
 export type SessionOutcome = 'pending' | 'adopted' | 'rejected' | 'quorum_not_reached';
 
 export type NotificationType = 
+  | 'connected'
   | 'vote_started' 
   | 'vote_ended' 
   | 'vote_cast' 
@@ -14,6 +15,7 @@ export type NotificationType =
   | 'meeting_switched'
   | 'presence_changed' 
   | 'list_applied'
+  | 'ballot_link_changed'
   | 'info';
 
 export interface RealtimeNotification {
@@ -110,6 +112,8 @@ export interface VotingSession {
   outcome: SessionOutcome;
   createdAt: string;
   closedAt?: string | null;
+  /** Première ouverture effective, conservée lors d’une suspension. */
+  openedAt?: string | null;
   voterStates: Record<string, VoterSessionState>; // voterId -> state
   selectedAttendeeIds?: string[]; // IDs of voters selected for this meeting
   activeListCode?: string; // 'CA' | 'CC' | 'BUREAU' | custom
@@ -132,6 +136,7 @@ export interface MeetingItem {
   outcome: SessionOutcome;
   createdAt: string;
   closedAt?: string | null;
+  selectedAttendeeIds?: string[];
   attendeesCount: number;
   votesCastCount: number;
   /** Résolution actuellement présentée sur la table. */
@@ -216,4 +221,16 @@ export interface LienVote {
   qr: string;
   expireLe: string;
   utilise: boolean;
+  /** État de la page mobile : aucune ouverture, battement valide, ou dernier refus. */
+  etatBulletin?: 'attente' | 'actif' | 'erreur';
+  dernierAccesLe?: string | null;
+  erreurBulletin?: string | null;
+  /** Le lien a déjà été revendiqué par un téléphone. */
+  verrouille?: boolean;
+  verrouilleLe?: string | null;
 }
+
+export type EtatLienVote = Pick<
+  LienVote,
+  'voterId' | 'etatBulletin' | 'dernierAccesLe' | 'erreurBulletin' | 'verrouille' | 'verrouilleLe'
+>;

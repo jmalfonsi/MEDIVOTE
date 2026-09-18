@@ -1,0 +1,54 @@
+[
+  {
+    "controle": "Trois exports identiques hors horodatage d’édition",
+    "status": "OK"
+  },
+  {
+    "controle": "Quorum réel : 50 % et deux membres requis",
+    "status": "OK"
+  },
+  {
+    "controle": "Décompte final : un pour et trois abstentions",
+    "status": "OK"
+  },
+  {
+    "controle": "Le PDF figé exclut le nouveau nom et le poids de neuf voix",
+    "status": "OK"
+  },
+  {
+    "controle": "Motion longue : 120 paragraphes conservés",
+    "status": "OK"
+  },
+  {
+    "controle": "Motion longue : synthèse, dernier membre et signatures conservés",
+    "status": "OK"
+  },
+  {
+    "controle": "Pondération : trois voix personnelles et quatre voix pour",
+    "status": "OK"
+  },
+  {
+    "controle": "Quorum non atteint et absent non votant",
+    "status": "OK"
+  },
+  {
+    "controle": "Émargement : chacun des 80 membres figure dans le PDF",
+    "status": "OK"
+  },
+  {
+    "controle": "Aucun en-tête d’émargement isolé",
+    "status": "OK"
+  },
+  {
+    "controle": "Impression : document sans Archives ni notification",
+    "status": "OK"
+  },
+  {
+    "controle": "Heure de Paris explicite dans le PDF et l’impression",
+    "status": "OK"
+  },
+  {
+    "controle": "Aucune affirmation de certification SQLite",
+    "status": "OK"
+  }
+]

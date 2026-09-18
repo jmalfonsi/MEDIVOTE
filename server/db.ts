@@ -2,7 +2,7 @@ import initSqlJs, { Database } from 'sql.js';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { calculateVoteStatistics } from '../src/utils/votingMath';
+import { calculateVoteStatistics, sessionVoters } from '../src/utils/votingMath';
 import { 
   Voter, 
   Seance,
@@ -316,7 +316,12 @@ export async function initDatabase(): Promise<Database> {
       voter_id TEXT NOT NULL,
       cree_le TEXT NOT NULL,
       expire_le TEXT NOT NULL,
-      utilise_le TEXT
+      utilise_le TEXT,
+      dernier_acces_le TEXT,
+      derniere_erreur_le TEXT,
+      erreur_message TEXT,
+      empreinte_appareil TEXT,
+      verrouille_le TEXT
     );
 
     CREATE TABLE IF NOT EXISTS motion_templates (
@@ -330,6 +335,11 @@ export async function initDatabase(): Promise<Database> {
     );
   `);
 
+  try {
+    db.run('ALTER TABLE sessions ADD COLUMN opened_at TEXT');
+    db.run(`UPDATE sessions SET opened_at=created_at WHERE status IN ('open','closed') OR EXISTS
+      (SELECT 1 FROM session_voter_states st WHERE st.session_id=sessions.id AND st.vote_choice!='pending')`);
+  } catch (_) {}
   // Migration: Add columns if they do not exist
   try { db.run(`ALTER TABLE sessions ADD COLUMN is_current_active INTEGER DEFAULT 0;`); } catch (_) {}
   try { db.run(`ALTER TABLE sessions ADD COLUMN selected_attendee_ids TEXT;`); } catch (_) {}
@@ -341,6 +351,21 @@ export async function initDatabase(): Promise<Database> {
   // Le lien de vote vaut pour toute la séance : un membre scanne une fois et
   // vote sur chaque résolution à mesure qu'elle s'ouvre.
   try { db.run(`ALTER TABLE jetons_vote ADD COLUMN seance_id TEXT;`); } catch (_) {}
+  // Suivi opérationnel des pages mobiles : ces champs n'entrent jamais dans le
+  // décompte. Ils servent uniquement à signaler au président qu'un bulletin est
+  // ouvert, valide, ou qu'une tentative vient d'échouer.
+  try { db.run(`ALTER TABLE jetons_vote ADD COLUMN dernier_acces_le TEXT;`); } catch (_) {}
+  try { db.run(`ALTER TABLE jetons_vote ADD COLUMN derniere_erreur_le TEXT;`); } catch (_) {}
+  try { db.run(`ALTER TABLE jetons_vote ADD COLUMN erreur_message TEXT;`); } catch (_) {}
+  try { db.run(`ALTER TABLE jetons_vote ADD COLUMN empreinte_appareil TEXT;`); } catch (_) {}
+  try { db.run(`ALTER TABLE jetons_vote ADD COLUMN verrouille_le TEXT;`); } catch (_) {}
+  try {
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_jetons_vote_appareil_seance
+       ON jetons_vote(seance_id, empreinte_appareil)
+       WHERE empreinte_appareil IS NOT NULL`
+    );
+  } catch (_) {}
   // Ensure closed sessions never remain marked as current active
   try { db.run(`UPDATE sessions SET is_current_active = 0 WHERE status = 'closed';`); } catch (_) {}
 
@@ -492,6 +517,7 @@ export async function initDatabase(): Promise<Database> {
   }
 
   migrerVersSeances();
+  reparerQuorumsArchives();
 
   saveDbToDisk();
   return db;
@@ -638,7 +664,14 @@ export function getAllVoters(): Voter[] {
   });
 }
 
+function verifierRegles(data: { majorityRequired?: string; quorumPct?: number }) {
+  if (data.majorityRequired !== undefined && !['simple','absolute','two_thirds','unanimous'].includes(data.majorityRequired)) throw new RegleScrutinError('Règle de majorité invalide.');
+  if (data.quorumPct !== undefined && (!Number.isFinite(data.quorumPct) || data.quorumPct < 0 || data.quorumPct > 100)) throw new RegleScrutinError('Le quorum doit être compris entre 0 et 100 %.');
+}
+
 export function saveVoter(voterData: Partial<Voter> & { name: string }): Voter {
+  if (!voterData.name?.trim()) throw new RegleScrutinError('Le nom du membre est obligatoire.');
+  if (!Number.isSafeInteger(voterData.weight ?? 1) || (voterData.weight ?? 1) <= 0) throw new RegleScrutinError('Le poids doit être un entier strictement positif.');
   const id = voterData.id || `voter_${Date.now()}`;
   const existing = db.exec("SELECT id FROM voters WHERE id = ?", [id]);
   
@@ -676,16 +709,13 @@ export function saveVoter(voterData: Partial<Voter> & { name: string }): Voter {
       ]
     );
 
-    // Auto-bind to current active session
-    const active = getActiveSession();
-    if (active) {
-      db.run(
-        `INSERT OR IGNORE INTO session_voter_states (session_id, voter_id, presence, vote_choice) VALUES (?, ?, 'present', 'pending')`,
-        [active.id, id]
-      );
-    }
+
   }
 
+  if (voterData.isActive === false) {
+    db.run('DELETE FROM jetons_vote WHERE voter_id=?', [id]);
+    getAllMeetings().filter(r => r.status !== 'closed').forEach(r => synchroniserConvocation(r.id));
+  }
   saveDbToDisk();
   const all = getAllVoters();
   return all.find(v => v.id === id)!;
@@ -699,11 +729,11 @@ export function saveVoter(voterData: Partial<Voter> & { name: string }): Voter {
  */
 export function deleteVoter(id: string): boolean {
   db.run("DELETE FROM voters WHERE id = ?", [id]);
-  db.run("DELETE FROM session_voter_states WHERE voter_id = ?", [id]);
+  db.run("DELETE FROM session_voter_states WHERE voter_id = ? AND session_id IN (SELECT id FROM sessions WHERE status != 'closed')", [id]);
 
   // Un mandant qui avait donné pouvoir au partant redevient simplement absent.
   db.run(
-    "UPDATE session_voter_states SET presence = 'absent', proxy_to_id = NULL WHERE proxy_to_id = ?",
+    "UPDATE session_voter_states SET presence = 'absent', proxy_to_id = NULL, vote_choice='pending', voted_at=NULL WHERE proxy_to_id = ? AND session_id IN (SELECT id FROM sessions WHERE status != 'closed')",
     [id]
   );
 
@@ -729,7 +759,7 @@ export function deleteVoter(id: string): boolean {
 
 /** Enlève un identifiant de votant des listes `selected_attendee_ids` d'une table. */
 function retirerDesConvocations(table: 'seances' | 'sessions', voterId: string): void {
-  const res = db.exec(`SELECT id, selected_attendee_ids FROM ${table}`);
+  const res = db.exec(`SELECT id, selected_attendee_ids FROM ${table} WHERE ${table === 'sessions' ? "status != 'closed'" : 'closed_at IS NULL'}`);
   if (!res.length) return;
   res[0].values.forEach(([rowId, brut]: any[]) => {
     if (!brut) return;
@@ -815,6 +845,7 @@ export function deleteVoterList(id: string): boolean {
 }
 
 export function applyVoterListToSession(sessionId: string, listIdOrCode: string): VotingSession | null {
+  resolutionModifiable(sessionId);
   const lists = getAllVoterLists();
   const list = lists.find(l => l.id === listIdOrCode || l.code.toUpperCase() === listIdOrCode.toUpperCase());
   if (!list) return null;
@@ -854,6 +885,7 @@ export function applyVoterListToSession(sessionId: string, listIdOrCode: string)
     });
   });
 
+  cibles.forEach(synchroniserConvocation);
   saveDbToDisk();
   return getSessionById(sessionId);
 }
@@ -1022,7 +1054,7 @@ function hydrateSeance(cols: string[], row: any[]): Seance {
   const o: any = {};
   cols.forEach((c, i) => { o[c] = row[i]; });
 
-  let convoques: string[] = [];
+  let convoques: string[] = getAllVoters().filter(v => v.isActive).map(v => v.id);
   if (o.selected_attendee_ids) {
     try { convoques = JSON.parse(o.selected_attendee_ids); } catch (_) { convoques = []; }
   }
@@ -1066,6 +1098,7 @@ export function getSeanceActive(): Seance | null {
 
 /** Crée une séance, ou met à jour ses coordonnées. Elle ne porte aucun suffrage. */
 export function creerOuMajSeance(donnees: Partial<Seance> & { attendeeIds?: string[] }): Seance {
+  if (donnees.id && getSeanceById(donnees.id)?.closedAt) throw new RegleScrutinError('La séance est clôturée et scellée.');
   const id = donnees.id || `seance_${Date.now()}`;
   const maintenant = new Date().toISOString();
   const existante = db.exec("SELECT id FROM seances WHERE id = ?", [id]);
@@ -1130,6 +1163,7 @@ export function creerOuMajSeance(donnees: Partial<Seance> & { attendeeIds?: stri
     ]
   );
 
+  resolutionsDeSeance(id).filter(r => r.status !== 'closed').forEach(r => synchroniserConvocation(r.id));
   saveDbToDisk();
   return getSeanceById(id)!;
 }
@@ -1143,22 +1177,7 @@ export function basculerSeance(seanceId: string): Seance | null {
   db.run("UPDATE seances SET is_current_active = 0");
   db.run("UPDATE seances SET is_current_active = 1 WHERE id = ?", [seanceId]);
 
-  // Les convoqués de la séance doivent avoir une ligne d'émargement sur chacune
-  // de ses résolutions encore ouvrables.
-  const voters = getAllVoters();
-  const convoques = seance.selectedAttendeeIds.length > 0
-    ? seance.selectedAttendeeIds
-    : voters.filter(v => v.isActive).map(v => v.id);
-  seance.resolutions
-    .filter(r => r.status !== 'closed')
-    .forEach(r => {
-      convoques.forEach(vid => {
-        db.run(
-          `INSERT OR IGNORE INTO session_voter_states (session_id, voter_id, presence, vote_choice) VALUES (?, ?, 'present', 'pending')`,
-          [r.id, vid]
-        );
-      });
-    });
+  seance.resolutions.filter(r => r.status !== 'closed').forEach(r => synchroniserConvocation(r.id));
 
   sanitizeActiveSessions();
   saveDbToDisk();
@@ -1175,10 +1194,10 @@ export function cloturerSeance(seanceId: string): Seance {
   if (!seance) throw new Error('Séance introuvable.');
   if (seance.closedAt) throw new Error('Cette séance est déjà clôturée.');
 
-  const ouverte = seance.resolutions.find(r => r.status === 'open');
+  const ouverte = seance.resolutions.find(r => r.status === 'open' || (r.status === 'draft' && getSessionById(r.id)?.openedAt));
   if (ouverte) {
     throw new Error(
-      `La résolution « ${ouverte.title} » est encore ouverte au vote : clôturez-la avant de clore la séance.`
+      `La résolution « ${ouverte.title} » est encore ouverte au vote ou suspendue : clôturez-la avant de clore la séance.`
     );
   }
 
@@ -1200,7 +1219,7 @@ export function cloturerSeance(seanceId: string): Seance {
 export function supprimerSeance(seanceId: string): boolean {
   const seance = getSeanceById(seanceId);
   if (!seance) return false;
-  if (seance.closedAt) throw new Error('Une séance clôturée est scellée : elle ne peut pas être supprimée.');
+  if (seance.closedAt || seance.resolutions.some(r => r.status === 'closed')) throw new RegleScrutinError('La séance contient des résultats scellés : elle ne peut pas être supprimée.');
 
   seance.resolutions.forEach(r => {
     db.run("DELETE FROM session_voter_states WHERE session_id = ?", [r.id]);
@@ -1227,15 +1246,12 @@ export function ajouterResolution(
   if (!seance) throw new Error('Séance introuvable.');
   if (seance.closedAt) throw new Error('Cette séance est clôturée : on ne peut plus y ajouter de résolution.');
 
+  verifierRegles(donnees);
   const ordre = seance.resolutions.reduce((max, r) => Math.max(max, r.ordre || 0), 0) + 1;
   const id = donnees.id || `resolution_${Date.now()}`;
   const maintenant = new Date().toISOString();
   const convoques =
-    donnees.attendeeIds && donnees.attendeeIds.length > 0
-      ? donnees.attendeeIds
-      : seance.selectedAttendeeIds.length > 0
-        ? seance.selectedAttendeeIds
-        : getAllVoters().filter(v => v.isActive).map(v => v.id);
+    donnees.attendeeIds ?? seance.selectedAttendeeIds;
 
   db.run(
     `INSERT INTO sessions (
@@ -1283,6 +1299,7 @@ export function ajouterResolution(
   db.run("UPDATE seances SET is_current_active=0");
   db.run("UPDATE seances SET is_current_active=1 WHERE id=?", [seanceId]);
   sanitizeActiveSessions();
+  synchroniserConvocation(id);
   saveDbToDisk();
   return getSessionById(id)!;
 }
@@ -1302,9 +1319,12 @@ export function basculerResolution(resolutionId: string): VotingSession | null {
 
 /** Réordonne les résolutions d'une séance selon la liste d'identifiants reçue. */
 export function reordonnerResolutions(seanceId: string, ordreIds: string[]): Seance {
-  ordreIds.forEach((id, i) => {
-    db.run("UPDATE sessions SET ordre=? WHERE id=? AND seance_id=?", [i + 1, id, seanceId]);
-  });
+  const seance = getSeanceById(seanceId);
+  if (!seance || seance.closedAt) throw new RegleScrutinError('Séance introuvable ou clôturée.');
+  if (ordreIds.length !== seance.resolutions.length || new Set(ordreIds).size !== ordreIds.length ||
+      ordreIds.some(id => !seance.resolutions.some(r => r.id === id))) throw new RegleScrutinError('L’ordre doit contenir chaque résolution une seule fois.');
+  if (seance.resolutions.some(r => r.status === 'closed' && ordreIds.indexOf(r.id) + 1 !== r.ordre)) throw new RegleScrutinError('Le rang d’un vote scellé ne peut pas être modifié.');
+  ordreIds.forEach((id,i) => db.run('UPDATE sessions SET ordre=? WHERE id=? AND seance_id=?', [i+1,id,seanceId]));
   saveDbToDisk();
   return getSeanceById(seanceId)!;
 }
@@ -1351,6 +1371,7 @@ function meetingsDepuis(sql: string, params: any[] = []): MeetingItem[] {
       outcome: s.outcome,
       createdAt: s.created_at,
       closedAt: s.closed_at,
+      selectedAttendeeIds: s.selected_attendee_ids ? JSON.parse(s.selected_attendee_ids) : undefined,
       attendeesCount,
       votesCastCount,
       isActiveMeeting: Boolean(s.is_current_active) && s.status !== 'closed',
@@ -1421,7 +1442,7 @@ function hydrateSession(cols: string[], row: any[]): VotingSession {
     });
   }
 
-  let selectedAttendeeIds: string[] = [];
+  let selectedAttendeeIds: string[] | undefined;
   if (s.selected_attendee_ids) {
     try {
       selectedAttendeeIds = JSON.parse(s.selected_attendee_ids);
@@ -1447,6 +1468,7 @@ function hydrateSession(cols: string[], row: any[]): VotingSession {
     outcome: s.outcome,
     createdAt: s.created_at,
     closedAt: s.closed_at,
+    openedAt: s.opened_at || null,
     voterStates,
     selectedAttendeeIds,
     activeListCode: s.active_list_code || undefined,
@@ -1473,19 +1495,7 @@ export function switchActiveMeeting(meetingId: string): VotingSession | null {
   db.run("UPDATE seances SET is_current_active = 1 WHERE id = ?", [resolution.seanceId]);
   db.run("UPDATE seances SET resolution_courante_id = ? WHERE id = ?", [meetingId, resolution.seanceId]);
 
-  const voters = getAllVoters();
-  const attendeeIds = resolution.selectedAttendeeIds && resolution.selectedAttendeeIds.length > 0
-    ? resolution.selectedAttendeeIds
-    : voters.filter(v => v.isActive).map(v => v.id);
-
-  if (resolution.status !== 'closed') {
-    attendeeIds.forEach(vid => {
-      db.run(
-        `INSERT OR IGNORE INTO session_voter_states (session_id, voter_id, presence, vote_choice) VALUES (?, ?, 'present', 'pending')`,
-        [meetingId, vid]
-      );
-    });
-  }
+  if (resolution.status !== 'closed') synchroniserConvocation(meetingId);
 
   sanitizeActiveSessions();
   saveDbToDisk();
@@ -1505,7 +1515,13 @@ export function switchActiveMeeting(meetingId: string): VotingSession | null {
  * de l'administrateur — l'ouvre. L'heure programmée n'est qu'un repère affiché.
  */
 export function createOrUpdateSession(sessionData: Partial<VotingSession> & { attendeeIds?: string[]; seanceId?: string }): VotingSession {
+  if (sessionData.id && getSessionById(sessionData.id)) resolutionModifiable(sessionData.id);
+  if (sessionData.seanceId && getSeanceById(sessionData.seanceId)?.closedAt) throw new RegleScrutinError('La séance est clôturée.');
+  verifierRegles(sessionData);
   const id = sessionData.id || `session_${Date.now()}`;
+  const previous = getSessionById(id);
+  if (previous) sessionData = { ...previous, ...sessionData, outcome: previous.outcome, closedAt: previous.closedAt };
+  else sessionData = { ...sessionData, outcome: 'pending', closedAt: null };
   const now = new Date().toISOString();
   const existing = db.exec("SELECT id, seance_id FROM sessions WHERE id = ?", [id]);
 
@@ -1621,7 +1637,7 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
   // Chaque convoqué a sa ligne d'émargement sur ce vote.
   const voters = getAllVoters();
   const listeExplicite = sessionData.attendeeIds || sessionData.selectedAttendeeIds;
-  const attendeeIds = listeExplicite || voters.map(v => v.id);
+  const attendeeIds = listeExplicite ?? getSessionById(id)?.selectedAttendeeIds ?? voters.filter(v => v.isActive).map(v => v.id);
   attendeeIds.forEach(vid => {
     db.run(
       `INSERT OR IGNORE INTO session_voter_states (session_id, voter_id, presence, vote_choice) VALUES (?, ?, 'present', 'pending')`,
@@ -1655,6 +1671,7 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
   }
 
   sanitizeActiveSessions();
+  synchroniserConvocation(id);
   saveDbToDisk();
   return getSessionById(id)!;
 }
@@ -1664,6 +1681,7 @@ export function createOrUpdateSession(sessionData: Partial<VotingSession> & { at
  * avec elle : une réunion sans aucun point à l'ordre du jour n'existe pas.
  */
 export function deleteMeeting(id: string): boolean {
+  resolutionModifiable(id);
   const resolution = getSessionById(id);
   const seanceId = resolution?.seanceId || null;
 
@@ -1731,98 +1749,129 @@ export function duplicateMeeting(id: string): VotingSession {
  * ouvrir avant l'heure annoncée s'il le décide, l'heure n'est qu'un repère.
  */
 export function definirOuvertureScrutin(sessionId: string, ouvert: boolean): VotingSession | null {
-  const seance = getSessionById(sessionId);
-  if (!seance) throw new Error('Séance introuvable.');
+  const seance = resolutionModifiable(sessionId);
   if (seance.status === 'closed') {
     throw new Error('Cette séance est clôturée : son scrutin ne peut plus être rouvert.');
   }
-  db.run("UPDATE sessions SET status=? WHERE id=?", [ouvert ? 'open' : 'draft', sessionId]);
+  db.run("UPDATE sessions SET status=?, opened_at=CASE WHEN ? THEN COALESCE(opened_at,?) ELSE opened_at END WHERE id=?", [ouvert ? 'open' : 'draft', ouvert ? 1 : 0, new Date().toISOString(), sessionId]);
   saveDbToDisk();
   return getSessionById(sessionId);
 }
 
-// Live Session state modifiers
-export function updateVoterVote(sessionId: string, voterId: string, vote: string): VotingSession | null {
-  // Un suffrage n'est recevable que pendant que le scrutin est ouvert. Une séance
-  // seulement programmée, ou déjà clôturée, ne peut pas recevoir de bulletin.
-  const seance = getSessionById(sessionId);
-  if (!seance) throw new Error('Séance introuvable.');
-  if (seance.status === 'closed') {
-    throw new Error('Cette séance est clôturée : aucun suffrage ne peut plus être enregistré.');
-  }
-  if (seance.status !== 'open') {
-    throw new Error("Le scrutin n'est pas ouvert. Ouvrez-le depuis la table avant de faire voter.");
-  }
+export class RegleScrutinError extends Error { readonly status = 409; }
 
-  const now = new Date().toISOString();
+function resolutionModifiable(id: string): VotingSession {
+  const session = getSessionById(id);
+  if (!session) throw new RegleScrutinError('Résolution introuvable.');
+  if (session.status === 'closed' || getSeanceById(session.seanceId)?.closedAt) {
+    throw new RegleScrutinError('Cette résolution est clôturée et scellée : créez un nouveau vote.');
+  }
+  return session;
+}
+
+function membreConvoque(session: VotingSession, id: string): Voter {
+  const voter = sessionVoters(session, getAllVoters()).find(v => v.id === id);
+  if (!voter) throw new RegleScrutinError('Le membre doit être actif et figurer parmi les convoqués.');
+  return voter;
+}
+
+function verifierBulletin(session: VotingSession, voterId: string, vote: string, correction: boolean) {
+  resolutionModifiable(session.id);
+  if (session.status !== 'open') throw new RegleScrutinError("Le scrutin n'est pas ouvert.");
+  if (!(correction ? ['for', 'against', 'abstain', 'pending'] : ['for', 'against', 'abstain']).includes(vote)) {
+    throw new RegleScrutinError('Suffrage invalide.');
+  }
+  membreConvoque(session, voterId);
+  if ((session.voterStates[voterId]?.presence ?? 'present') !== 'present') {
+    throw new RegleScrutinError('Le membre doit être émargé présent et ne pas avoir donné pouvoir.');
+  }
+}
+
+// Une correction administrative est permise tant que le scrutin est ouvert.
+export function updateVoterVote(sessionId: string, voterId: string, vote: string): VotingSession | null {
+  const session = resolutionModifiable(sessionId);
+  verifierBulletin(session, voterId, vote, true);
+  const now = vote === 'pending' ? null : new Date().toISOString();
   db.run(
     `INSERT INTO session_voter_states (session_id, voter_id, presence, vote_choice, voted_at)
      VALUES (?, ?, 'present', ?, ?)
      ON CONFLICT(session_id, voter_id) DO UPDATE SET vote_choice=?, voted_at=?`,
     [sessionId, voterId, vote, now, vote, now]
   );
-
-  // If this voter holds proxies from other members, propagate the vote to their proxies
+  const eligible = JSON.stringify(sessionVoters(session, getAllVoters()).map(v => v.id));
   db.run(
-    `UPDATE session_voter_states SET vote_choice=?, voted_at=? WHERE session_id=? AND proxy_to_id=? AND presence='proxy'`,
-    [vote, now, sessionId, voterId]
+    `UPDATE session_voter_states SET vote_choice=?, voted_at=?
+     WHERE session_id=? AND proxy_to_id=? AND presence='proxy'
+       AND voter_id IN (SELECT value FROM json_each(?))`,
+    [vote, now, sessionId, voterId, eligible]
   );
-
   saveDbToDisk();
   return getSessionById(sessionId);
 }
 
+/** Préparer tous les changements avant de les appliquer : pas de demi-émargement. */
 export function updateVoterPresence(sessionId: string, voterId: string, presence: string, proxyToId?: string | null): VotingSession | null {
-  const actualProxyToId = presence === 'proxy' && proxyToId ? proxyToId : null;
-
-  // Strict validation: A mandataire cannot hold more than 2 proxies in the same session
-  if (presence === 'proxy' && actualProxyToId) {
-    if (actualProxyToId === voterId) {
-      throw new Error('Un membre ne peut pas se donner procuration à lui-même.');
+  const session = resolutionModifiable(sessionId);
+  membreConvoque(session, voterId);
+  if (!['present', 'absent', 'excused', 'proxy'].includes(presence)) throw new RegleScrutinError('Présence invalide.');
+  const voters = getAllVoters();
+  const cibles = session.seanceId
+    ? resolutionsDeSeance(session.seanceId).filter(r => r.status !== 'closed').map(r => getSessionById(r.id)!)
+    : [session];
+  const changements = cibles.filter(cible => sessionVoters(cible, voters).some(v => v.id === voterId)).map(cible => {
+    let choixPresence = presence;
+    let recipient = presence === 'proxy' ? proxyToId : null;
+    if (presence === 'proxy') {
+      if (!recipient || recipient === voterId) throw new RegleScrutinError('Un pouvoir exige un autre mandataire présent.');
+      const valide = sessionVoters(cible, voters).some(v => v.id === recipient) &&
+        (cible.voterStates[recipient]?.presence ?? 'present') === 'present';
+      if (!valide) {
+        if (cible.id === sessionId) throw new RegleScrutinError('Le mandataire doit être actif, convoqué et présent.');
+        choixPresence = 'absent'; recipient = null;
+      } else {
+        const nombre = sessionVoters(cible, voters).filter(v => v.id !== voterId &&
+          cible.voterStates[v.id]?.presence === 'proxy' && cible.voterStates[v.id]?.proxyToId === recipient).length;
+        if (nombre >= 2) throw new RegleScrutinError('Ce mandataire détient déjà le maximum de 2 procurations.');
+      }
     }
-
-    const checkRes = db.exec(
-      `SELECT COUNT(*) FROM session_voter_states WHERE session_id = ? AND proxy_to_id = ? AND voter_id != ? AND presence = 'proxy'`,
-      [sessionId, actualProxyToId, voterId]
-    );
-    const existingCount = Number(checkRes[0]?.values[0]?.[0]) || 0;
-    if (existingCount >= 2) {
-      throw new Error('Ce mandataire détient déjà le nombre maximal de 2 procurations autorisées.');
-    }
-  }
-
-  /*
-   * On émarge une fois pour la séance, pas une fois par résolution : la présence
-   * et les procurations valent pour tous les points de l'ordre du jour encore
-   * ouvrables. Les résolutions déjà clôturées gardent, elles, l'émargement
-   * constaté au moment de leur clôture — c'est ce qui figure à leur PV.
-   */
-  const cibles = [sessionId];
-  const seanceId = seanceDeResolution(sessionId);
-  if (seanceId) {
-    const fratrie = db.exec(
-      "SELECT id FROM sessions WHERE seance_id = ? AND status != 'closed' AND id != ?",
-      [seanceId, sessionId]
-    );
-    if (fratrie.length && fratrie[0].values.length) {
-      fratrie[0].values.forEach(row => cibles.push(String(row[0])));
-    }
-  }
-
-  cibles.forEach(cible => {
-    db.run(
-      `INSERT INTO session_voter_states (session_id, voter_id, presence, proxy_to_id, vote_choice)
-       VALUES (?, ?, ?, ?, 'pending')
-       ON CONFLICT(session_id, voter_id) DO UPDATE SET presence=?, proxy_to_id=?`,
-      [cible, voterId, presence, actualProxyToId, presence, actualProxyToId]
-    );
+    const ancien = cible.voterStates[voterId];
+    const identique = ancien?.presence === choixPresence && (ancien.proxyToId || null) === (recipient || null);
+    const mandataire = recipient ? cible.voterStates[recipient] : null;
+    const vote = choixPresence === 'proxy' ? mandataire?.vote ?? 'pending' :
+      choixPresence === 'present' && identique ? ancien.vote : 'pending';
+    const votedAt = choixPresence === 'proxy' ? mandataire?.votedAt ?? null :
+      choixPresence === 'present' && identique ? ancien.votedAt ?? null : null;
+    return { cible, choixPresence, recipient, vote, votedAt };
   });
-
+  changements.forEach(({cible, choixPresence, recipient, vote, votedAt}) => {
+    db.run(`INSERT INTO session_voter_states (session_id,voter_id,presence,proxy_to_id,vote_choice,voted_at)
+      VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,voter_id) DO UPDATE SET
+      presence=excluded.presence,proxy_to_id=excluded.proxy_to_id,vote_choice=excluded.vote_choice,voted_at=excluded.voted_at`,
+      [cible.id, voterId, choixPresence, recipient || null, vote, votedAt]);
+    if (choixPresence !== 'present') {
+      db.run(`UPDATE session_voter_states SET presence='absent',proxy_to_id=NULL,vote_choice='pending',voted_at=NULL
+        WHERE session_id=? AND proxy_to_id=?`, [cible.id, voterId]);
+    }
+  });
   saveDbToDisk();
   return getSessionById(sessionId);
+}
+
+/** Aligne les lignes sur la convocation, sans modifier un scrutin scellé. */
+function synchroniserConvocation(id: string): void {
+  const session = getSessionById(id);
+  if (!session || session.status === 'closed') return;
+  const voters = sessionVoters(session, getAllVoters());
+  const ids = JSON.stringify(voters.map(v => v.id));
+  db.run(`DELETE FROM session_voter_states WHERE session_id=? AND voter_id NOT IN (SELECT value FROM json_each(?))`, [id, ids]);
+  voters.forEach(v => db.run(`INSERT OR IGNORE INTO session_voter_states (session_id,voter_id,presence,vote_choice) VALUES (?,?,'present','pending')`, [id,v.id]));
+  db.run(`UPDATE session_voter_states SET presence='absent',proxy_to_id=NULL,vote_choice='pending',voted_at=NULL
+    WHERE session_id=? AND presence='proxy' AND (proxy_to_id IS NULL OR proxy_to_id=voter_id OR proxy_to_id NOT IN
+      (SELECT voter_id FROM session_voter_states WHERE session_id=? AND presence='present'))`, [id,id]);
 }
 
 export function resetSessionVotes(sessionId: string): VotingSession | null {
+  resolutionModifiable(sessionId);
   db.run(
     `UPDATE session_voter_states SET vote_choice='pending', voted_at=NULL WHERE session_id=?`,
     [sessionId]
@@ -1837,7 +1886,7 @@ export function resetSessionVotes(sessionId: string): VotingSession | null {
   // La remise à zéro efface les suffrages, elle n'ouvre rien : c'est à
   // l'administrateur de rouvrir le scrutin s'il veut un nouveau tour.
   db.run(
-    `UPDATE sessions SET status='draft', outcome='pending', closed_at=NULL WHERE id=?`,
+    `UPDATE sessions SET status='draft', outcome='pending', closed_at=NULL, opened_at=NULL WHERE id=?`,
     [sessionId]
   );
   saveDbToDisk();
@@ -1849,9 +1898,10 @@ export function resetSessionVotes(sessionId: string): VotingSession | null {
  * en base : rien de ce que le navigateur envoie n'est retenu pour le procès-verbal.
  */
 export function archiveAndCloseSession(sessionId: string): { history: SessionHistoryItem; stats: VoteStatistics } {
-  const session = getSessionById(sessionId);
-  if (!session) throw new Error('Séance introuvable');
-  if (session.status === 'closed') throw new Error('Cette séance est déjà clôturée.');
+  const session = resolutionModifiable(sessionId);
+  if (!session.openedAt && session.status !== 'open') throw new RegleScrutinError('Ce scrutin n’a jamais été ouvert : il ne peut pas être dépouillé.');
+  synchroniserConvocation(sessionId);
+  session.voterStates = getSessionById(sessionId)!.voterStates;
 
   const voters = getAllVoters();
   const stats = calculateVoteStatistics(session, voters, { finaliser: true });
@@ -1887,7 +1937,7 @@ export function archiveAndCloseSession(sessionId: string): { history: SessionHis
     db.run("UPDATE seances SET resolution_courante_id=? WHERE id=?", [sessionId, session.seanceId]);
   }
 
-  const historyId = `hist_${Date.now()}`;
+  const historyId = `hist_${crypto.randomUUID()}`;
   const detailedSnapshot = {
     session: { ...sessionFigee, status: 'closed' as const, outcome: stats.outcome, closedAt: now },
     stats,
@@ -1913,7 +1963,7 @@ export function archiveAndCloseSession(sessionId: string): { history: SessionHis
       stats.totalEligible,
       stats.presentCount + stats.proxyCount,
       stats.quorumReached ? 1 : 0,
-      stats.quorumNeeded,
+      session.quorumPct ?? 0,
       stats.votesFor,
       stats.votesAgainst,
       stats.votesAbstain,
@@ -1953,6 +2003,20 @@ export function archiveAndCloseSession(sessionId: string): { history: SessionHis
   return { history, stats };
 }
 
+/** Répare uniquement la métadonnée de quorum, depuis la copie scellée originale. */
+export function reparerQuorumsArchives(): number {
+  const rows = db.exec('SELECT id,quorum_pct,detailed_json FROM sessions_history');
+  let repaired = 0;
+  for (const [id, previous, raw] of rows[0]?.values ?? []) {
+    let quorum: unknown;
+    try { quorum = JSON.parse(String(raw))?.session?.quorumPct; } catch { continue; }
+    if (typeof quorum !== 'number' || !Number.isFinite(quorum) || quorum < 0 || quorum > 100 || quorum === previous) continue;
+    db.run('UPDATE sessions_history SET quorum_pct=? WHERE id=?', [quorum,id]);
+    repaired++;
+  }
+  return repaired;
+}
+
 export function getHistory(): SessionHistoryItem[] {
   const res = db.exec("SELECT * FROM sessions_history ORDER BY closed_at DESC");
   if (!res.length) return [];
@@ -1978,7 +2042,7 @@ export function getHistory(): SessionHistoryItem[] {
       totalEligible: obj.total_eligible,
       totalPresent: obj.total_present,
       quorumReached: Boolean(obj.quorum_reached),
-      quorumPct: obj.quorum_pct,
+      quorumPct: (snapshot as any)?.session?.quorumPct ?? obj.quorum_pct,
       votesFor: obj.votes_for,
       votesAgainst: obj.votes_against,
       votesAbstain: obj.votes_abstain,
@@ -1992,9 +2056,7 @@ export function getHistory(): SessionHistoryItem[] {
 }
 
 export function deleteHistoryItem(id: string): boolean {
-  db.run("DELETE FROM sessions_history WHERE id = ?", [id]);
-  saveDbToDisk();
-  return true;
+  throw new RegleScrutinError('Le procès-verbal est scellé : une archive ne peut pas être supprimée.');
 }
 
 // Event logging & Notifications
@@ -2135,6 +2197,7 @@ export function getAllTemplates() {
 }
 
 export function saveTemplate(tpl: { id?: string; name: string; title: string; motionText: string; majorityRequired?: string; quorumPct?: number }) {
+  verifierRegles(tpl);
   const id = tpl.id || `tpl_${Date.now()}`;
   const now = new Date().toISOString();
   const majority = tpl.majorityRequired || 'simple';
@@ -2203,7 +2266,19 @@ export interface JetonVote {
   creeLe: string;
   expireLe: string;
   utiliseLe: string | null;
+  dernierAccesLe: string | null;
+  derniereErreurLe: string | null;
+  erreurMessage: string | null;
+  empreinteAppareil: string | null;
+  verrouilleLe: string | null;
 }
+
+export type EtatBulletin = 'attente' | 'actif' | 'erreur';
+
+/** Une page mobile interroge le serveur toutes les 5 s ; 20 s absorbent les
+ * ralentissements ordinaires sans laisser une page fermée affichée en vert. */
+export const SECONDES_ACTIVITE_BULLETIN = 20;
+export const SECONDES_AFFICHAGE_ERREUR_BULLETIN = 30;
 
 function ligneVersJeton(cols: string[], row: any[]): JetonVote {
   const o: any = {};
@@ -2216,7 +2291,73 @@ function ligneVersJeton(cols: string[], row: any[]): JetonVote {
     creeLe: String(o.cree_le),
     expireLe: String(o.expire_le),
     utiliseLe: o.utilise_le ? String(o.utilise_le) : null,
+    dernierAccesLe: o.dernier_acces_le ? String(o.dernier_acces_le) : null,
+    derniereErreurLe: o.derniere_erreur_le ? String(o.derniere_erreur_le) : null,
+    erreurMessage: o.erreur_message ? String(o.erreur_message) : null,
+    empreinteAppareil: o.empreinte_appareil ? String(o.empreinte_appareil) : null,
+    verrouilleLe: o.verrouille_le ? String(o.verrouille_le) : null,
   };
+}
+
+export interface EtatJetonVote {
+  voterId: string;
+  etatBulletin: EtatBulletin;
+  dernierAccesLe: string | null;
+  erreurBulletin: string | null;
+  verrouille: boolean;
+  verrouilleLe: string | null;
+}
+
+function etatDuJeton(jeton: JetonVote, maintenant = Date.now()): EtatJetonVote {
+  const acces = jeton.dernierAccesLe ? Date.parse(jeton.dernierAccesLe) : NaN;
+  const erreur = jeton.derniereErreurLe ? Date.parse(jeton.derniereErreurLe) : NaN;
+  const erreurRecente = Number.isFinite(erreur)
+    && maintenant - erreur <= SECONDES_AFFICHAGE_ERREUR_BULLETIN * 1000;
+  const actif = Number.isFinite(acces) && maintenant - acces <= SECONDES_ACTIVITE_BULLETIN * 1000;
+  return {
+    voterId: jeton.voterId,
+    etatBulletin: erreurRecente ? 'erreur' : actif ? 'actif' : 'attente',
+    dernierAccesLe: jeton.dernierAccesLe,
+    erreurBulletin: erreurRecente ? jeton.erreurMessage : null,
+    verrouille: Boolean(jeton.empreinteAppareil),
+    verrouilleLe: jeton.verrouilleLe,
+  };
+}
+
+/** Enregistre le battement d'une page mobile valide. État volontairement
+ * transitoire : on ne réécrit pas tout le fichier SQLite toutes les 5 secondes. */
+export function marquerActiviteJetonVote(jeton: string, effacerErreur = false): void {
+  if (effacerErreur) {
+    db.run(
+      `UPDATE jetons_vote
+       SET dernier_acces_le=?, derniere_erreur_le=NULL, erreur_message=NULL
+       WHERE jeton=?`,
+      [new Date().toISOString(), jeton]
+    );
+    return;
+  }
+  db.run(`UPDATE jetons_vote SET dernier_acces_le=? WHERE jeton=?`, [new Date().toISOString(), jeton]);
+}
+
+/** Mémorise le dernier refus connu afin que l'écran de séance puisse le montrer. */
+export function marquerErreurJetonVote(jeton: string, message: string): void {
+  db.run(
+    `UPDATE jetons_vote SET derniere_erreur_le=?, erreur_message=? WHERE jeton=?`,
+    [new Date().toISOString(), String(message || 'Bulletin inutilisable.').slice(0, 300), jeton]
+  );
+}
+
+/** État léger des bulletins d'une séance, sans régénérer les QR codes. */
+export function etatsJetonsVote(seanceOuResolutionId: string): EtatJetonVote[] {
+  const seanceId = seanceDeResolution(seanceOuResolutionId) || seanceOuResolutionId;
+  const res = db.exec(
+    `SELECT * FROM jetons_vote
+     WHERE seance_id=? AND expire_le>?
+     ORDER BY voter_id`,
+    [seanceId, new Date().toISOString()]
+  );
+  if (!res.length) return [];
+  return res[0].values.map(row => etatDuJeton(ligneVersJeton(res[0].columns, row)));
 }
 
 /** Retire les liens périmés. Appelé au démarrage et avant chaque distribution. */
@@ -2246,7 +2387,15 @@ export function jetonVotePour(
 
   if (res.length && res[0].values.length) {
     const existant = ligneVersJeton(res[0].columns, res[0].values[0]);
-    if (new Date(existant.expireLe).getTime() > maintenant.getTime()) return existant;
+    if (new Date(existant.expireLe).getTime() > maintenant.getTime()) {
+      // Tant que l’écran de séance est actif, conserver le même QR et repousser
+      // son échéance. Les liens cessent néanmoins de vivre 24 h après le dernier
+      // affichage, ou immédiatement à la clôture de la séance.
+      const expireLe = new Date(maintenant.getTime() + dureeHeures * 3600 * 1000).toISOString();
+      db.run("UPDATE jetons_vote SET expire_le=? WHERE jeton=?", [expireLe, existant.jeton]);
+      saveDbToDisk();
+      return { ...existant, expireLe };
+    }
     db.run("DELETE FROM jetons_vote WHERE jeton = ?", [existant.jeton]);
   }
 
@@ -2258,6 +2407,11 @@ export function jetonVotePour(
     creeLe: maintenant.toISOString(),
     expireLe: new Date(maintenant.getTime() + dureeHeures * 3600 * 1000).toISOString(),
     utiliseLe: null,
+    dernierAccesLe: null,
+    derniereErreurLe: null,
+    erreurMessage: null,
+    empreinteAppareil: null,
+    verrouilleLe: null,
   };
   db.run(
     `INSERT INTO jetons_vote (jeton, session_id, seance_id, voter_id, cree_le, expire_le, utilise_le)
@@ -2278,6 +2432,100 @@ export function lireJetonVote(jeton: string): JetonVote | null {
     return null;
   }
   return trouve;
+}
+
+export class BulletinDejaRecupereError extends Error {
+  readonly status = 423;
+}
+
+export class LienVoteInvalideError extends Error {
+  readonly status = 410;
+}
+
+function empreinteTelephone(identifiantAppareil: string): string {
+  const identifiant = String(identifiantAppareil || '').trim();
+  if (identifiant.length < 24 || identifiant.length > 256) {
+    const erreur: any = new Error("Ce téléphone ne présente pas d'identifiant de bulletin valide.");
+    erreur.status = 400;
+    throw erreur;
+  }
+  return crypto.createHash('sha256').update(identifiant).digest('hex');
+}
+
+/**
+ * Le premier téléphone qui présente le jeton en devient le détenteur pour toute
+ * la séance. Seule l'empreinte SHA-256 de sa clé locale est conservée.
+ */
+export function revendiquerJetonVote(jeton: string, identifiantAppareil: string): JetonVote {
+  const lien = lireJetonVote(jeton);
+  if (!lien) throw new LienVoteInvalideError("Ce lien de vote n'est plus valable.");
+  const empreinte = empreinteTelephone(identifiantAppareil);
+
+  if (lien.empreinteAppareil) {
+    const attendu = Buffer.from(lien.empreinteAppareil, 'hex');
+    const presente = Buffer.from(empreinte, 'hex');
+    if (attendu.length !== presente.length || !crypto.timingSafeEqual(attendu, presente)) {
+      throw new BulletinDejaRecupereError(
+        "Ce bulletin a déjà été récupéré sur un autre téléphone. Demandez à l'administrateur de le débloquer ou de créer un nouveau QR code."
+      );
+    }
+    return lien;
+  }
+
+  const autreBulletin = db.exec(
+    `SELECT voter_id FROM jetons_vote
+     WHERE seance_id=? AND empreinte_appareil=? AND voter_id!=?
+     LIMIT 1`,
+    [lien.seanceId, empreinte, lien.voterId]
+  );
+  if (autreBulletin.length && autreBulletin[0].values.length) {
+    throw new BulletinDejaRecupereError(
+      'Ce téléphone détient déjà un autre bulletin pour cette séance.'
+    );
+  }
+
+  const verrouilleLe = new Date().toISOString();
+  db.run(
+    `UPDATE jetons_vote SET empreinte_appareil=?, verrouille_le=? WHERE jeton=? AND empreinte_appareil IS NULL`,
+    [empreinte, verrouilleLe, jeton]
+  );
+  saveDbToDisk();
+  return { ...lien, empreinteAppareil: empreinte, verrouilleLe };
+}
+
+/** Libère le QR existant. Le premier téléphone qui le relit le revendiquera. */
+export function deverrouillerJetonVote(seanceOuResolutionId: string, voterId: string): JetonVote {
+  const seanceId = seanceDeResolution(seanceOuResolutionId) || seanceOuResolutionId;
+  const res = db.exec(
+    "SELECT * FROM jetons_vote WHERE seance_id=? AND voter_id=?",
+    [seanceId, voterId]
+  );
+  if (!res.length || !res[0].values.length) throw new RegleScrutinError('Lien de vote introuvable.');
+  const lien = ligneVersJeton(res[0].columns, res[0].values[0]);
+  db.run(
+    `UPDATE jetons_vote
+     SET empreinte_appareil=NULL, verrouille_le=NULL, dernier_acces_le=NULL,
+         derniere_erreur_le=NULL, erreur_message=NULL
+     WHERE jeton=?`,
+    [lien.jeton]
+  );
+  saveDbToDisk();
+  return {
+    ...lien,
+    empreinteAppareil: null,
+    verrouilleLe: null,
+    dernierAccesLe: null,
+    derniereErreurLe: null,
+    erreurMessage: null,
+  };
+}
+
+/** Révoque un seul lien et rend un jeton neuf pour le même membre et la même séance. */
+export function renouvelerJetonVote(seanceOuResolutionId: string, voterId: string): JetonVote {
+  const seanceId = seanceDeResolution(seanceOuResolutionId) || seanceOuResolutionId;
+  db.run("DELETE FROM jetons_vote WHERE seance_id=? AND voter_id=?", [seanceId, voterId]);
+  saveDbToDisk();
+  return jetonVotePour(seanceId, voterId);
 }
 
 /** Efface tous les liens d'une séance : à sa clôture, ils n'ont plus d'objet. */
@@ -2343,6 +2591,7 @@ export function voterAvecJeton(
   if (resolution.status === 'closed') throw new Error('Le scrutin est clôturé : votre suffrage ne peut plus être enregistré.');
   if (resolution.status !== 'open') throw new Error("Le scrutin n'est pas encore ouvert. Patientez, la page se mettra à jour.");
 
+  verifierBulletin(resolution, lien.voterId, vote, false);
   const etat = resolution.voterStates[lien.voterId];
   if (!etat) throw new Error("Vous ne figurez pas parmi les membres convoqués à cette séance.");
   if (etat.presence === 'absent' || etat.presence === 'excused') {
@@ -2393,11 +2642,11 @@ export function contexteVotant(jeton: string): {
   /** Résolution en cours : son identifiant change quand la séance passe au point suivant. */
   resolution: { id: string; ordre: number; total: number; referenceCode: string; title: string };
   seanceClose: boolean;
-  votant: { name: string; title: string; seatNumber: number };
+  votant: { name: string; title: string; seatNumber: number; weight: number };
   presence: string;
   aVote: boolean;
   choix: string | null;
-  pouvoirs: { name: string; title: string }[];
+  pouvoirs: { name: string; title: string; weight: number }[];
   expireLe: string;
 } | null {
   const lien = lireJetonVote(jeton);
@@ -2416,7 +2665,7 @@ export function contexteVotant(jeton: string): {
     .filter(([, e]) => e.presence === 'proxy' && e.proxyToId === lien.voterId)
     .map(([id]) => voters.find((v) => v.id === id))
     .filter((v): v is Voter => Boolean(v))
-    .map((v) => ({ name: v.name, title: v.title }));
+    .map((v) => ({ name: v.name, title: v.title, weight: v.weight ?? 1 }));
 
   // Un bulletin déposé sur CETTE résolution : le lien, lui, sert toute la séance.
   const aVote = etat.vote !== 'pending' && etat.vote !== 'secret';
@@ -2440,7 +2689,7 @@ export function contexteVotant(jeton: string): {
       title: resolution.title,
     },
     seanceClose: Boolean(seanceMere?.closedAt),
-    votant: { name: votant.name, title: votant.title, seatNumber: votant.seatNumber },
+    votant: { name: votant.name, title: votant.title, seatNumber: votant.seatNumber, weight: votant.weight ?? 1 },
     presence: etat.presence,
     aVote,
     // En scrutin secret, le téléphone n'affiche jamais le sens du bulletin déposé.

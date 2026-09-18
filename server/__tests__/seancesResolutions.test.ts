@@ -233,7 +233,7 @@ describe('séance et résolutions', () => {
     db.updateVoterVote(r1, membres[0], 'for');
     db.archiveAndCloseSession(r1);
 
-    db.createOrUpdateSession({ id: r1, title: 'Première résolution', attendeeIds: [membres[0]] } as any);
+    expect(() => db.createOrUpdateSession({ id: r1, title: 'Première résolution', attendeeIds: [membres[0]] } as any)).toThrow(/scellée/);
 
     const etats = db.getSessionById(r1)!.voterStates;
     expect(Object.keys(etats)).toHaveLength(membres.length);

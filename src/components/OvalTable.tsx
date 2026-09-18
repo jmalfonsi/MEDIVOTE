@@ -32,8 +32,11 @@ import confetti from 'canvas-confetti';
 import { VotingSession, Voter, VoteStatistics, VoteChoice, PresenceStatus, LienVote, Seance } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { generateSessionPdfReport } from '../utils/pdfExport';
+import { archivedReport } from '../utils/historySnapshot';
+import type { SessionHistoryItem } from '../types';
 
 interface OvalTableProps {
+  history?: SessionHistoryItem[];
   session: VotingSession | null;
   voters: Voter[];
   stats: VoteStatistics;
@@ -50,6 +53,8 @@ interface OvalTableProps {
   /** true quand les liens n'ont pas pu être obtenus : on le dit plutôt que de faire disparaître les QR. */
   liensIndisponibles?: boolean;
   onRechargerLiens?: () => void;
+  onDeverrouillerLien?: (voterId: string) => void;
+  onRenouvelerLien?: (voterId: string) => void;
   /** Séance en cours : c'est elle qui porte l'ordre du jour. */
   seance?: Seance | null;
   /** Présente un autre point de l'ordre du jour sur la table. */
@@ -62,9 +67,10 @@ interface OvalTableProps {
 }
 
 export const OvalTable: React.FC<OvalTableProps> = ({
-  session,
-  voters,
-  stats,
+  session: liveSession,
+  voters: liveVoters,
+  stats: liveStats,
+  history = [],
   isFullscreen = false,
   onToggleFullscreen,
   onVote,
@@ -75,6 +81,8 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   liensVote = {},
   liensIndisponibles = false,
   onRechargerLiens,
+  onDeverrouillerLien,
+  onRenouvelerLien,
   seance = null,
   onSwitchResolution,
   onAjouterResolution,
@@ -82,6 +90,11 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   onQuickVoteAllFor,
   onSimulateRandomVotes,
 }) => {
+  const archived = liveSession?.status === 'closed' ? history.find(h => h.sessionId === liveSession.id) : undefined;
+  const report = archived?.detailedSnapshot?.session ? archivedReport(archived) : undefined;
+  const session = report?.session ?? liveSession;
+  const voters = report?.voters ?? liveVoters;
+  const stats = report?.stats ?? liveStats;
   const [selectedVoterId, setSelectedVoterId] = useState<string | null>(null);
   const [isTextExpanded, setIsTextExpanded] = useState<boolean>(false);
   const [filterVoterStatus, setFilterVoterStatus] = useState<'all' | 'voted' | 'pending'>('all');
@@ -90,9 +103,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
   const [qrPleinEcranId, setQrPleinEcranId] = useState<string | null>(null);
   
   // Strictly filter voters to the meeting's single active list
-  const meetingAttendeeIds = session?.selectedAttendeeIds && session.selectedAttendeeIds.length > 0
-    ? session.selectedAttendeeIds
-    : voters.map(v => v.id);
+  const meetingAttendeeIds = session?.selectedAttendeeIds ?? voters.filter(v => v.isActive).map(v => v.id);
 
   const activeVoters = voters.filter(v => v.isActive && meetingAttendeeIds.includes(v.id));
   const totalCount = activeVoters.length;
@@ -300,11 +311,11 @@ export const OvalTable: React.FC<OvalTableProps> = ({
             {/* PDF Report Export Button - Grisé tant que la séance n'est pas clôturée */}
             <button
               onClick={() => {
-                if (session.status === 'closed') {
-                  generateSessionPdfReport(session, voters, stats);
+                if (report) {
+                  generateSessionPdfReport(report.session, report.voters, report.stats);
                 }
               }}
-              disabled={session.status !== 'closed'}
+              disabled={!report}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold shadow-2xs transition flex items-center gap-1.5 ${
                 session.status === 'closed'
                   ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
@@ -350,12 +361,12 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               </button>
             ) : (
               <button
-                onClick={onResetVotes}
-                title="Rouvrir la séance clôturée en remettant les suffrages à zéro"
+                onClick={onAjouterResolution}
+                title="Créer un nouveau vote sans modifier le résultat archivé"
                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1"
               >
                 <Unlock className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Rouvrir (remise à zéro)</span>
+                <span className="hidden sm:inline">Nouveau vote</span>
               </button>
             )}
 
@@ -491,6 +502,13 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 );
               })}
 
+              {!seance.closedAt && onRechargerLiens && (
+                <button onClick={onRechargerLiens} title="Actualiser les QR codes sans modifier les votes ni les pouvoirs"
+                  className="flex items-center gap-1 px-2 py-1 rounded-xl border border-emerald-300 bg-white text-emerald-800 text-[0.6875rem] font-bold hover:bg-emerald-50">
+                  <QrCode className="w-3.5 h-3.5" /> Actualiser les QR codes
+                </button>
+              )}
+
               {!seance.closedAt && onAjouterResolution && (
                 <button
                   onClick={onAjouterResolution}
@@ -625,6 +643,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
             <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-center gap-2">
               <button
                 onClick={() => setIsAttendanceModalOpen(true)}
+                disabled={session.status === 'closed'}
                 className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
                 title="Gérer les présences et les procurations de la liste"
               >
@@ -713,6 +732,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
           // Le QR n'a d'intérêt que pour un membre présent qui n'a pas encore voté :
           // une fois le bulletin déposé, le lien est clos.
           const lienVote = liensVote[voter.id];
+          const etatBulletin = lienVote?.etatBulletin || 'attente';
           const qrAPresenter = lienVote && isPresent && !hasVoted ? lienVote : null;
 
           // Proxies held by this voter
@@ -736,11 +756,20 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               {/* Voter Seat Card */}
               <div
                 onClick={() => setSelectedVoterId(isSelected ? null : voter.id)}
+                title={etatBulletin === 'actif'
+                  ? 'Bulletin ouvert sur un téléphone et lien valide'
+                  : etatBulletin === 'erreur'
+                    ? `Bulletin en erreur${lienVote?.erreurBulletin ? ` : ${lienVote.erreurBulletin}` : ''}`
+                    : undefined}
                 className={`cursor-pointer ${
                   isLargeAssembly ? 'w-24 sm:w-26 md:w-28 lg:w-32 xl:w-34 p-1.5 sm:p-2' : 'w-28 sm:w-34 md:w-36 lg:w-40 p-2 sm:p-2.5'
                 } rounded-2xl transition-all duration-200 text-left border shadow-xs ${
-                  isSelected
-                    ? 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-white scale-105 bg-white border-emerald-500 shadow-lg z-30'
+                  isSelected ? 'ring-2 ring-slate-700 ring-offset-2 ring-offset-white scale-105 shadow-lg z-30 ' : ''
+                }${
+                  etatBulletin === 'erreur'
+                    ? 'bg-rose-100 border-rose-500 hover:bg-rose-50'
+                    : etatBulletin === 'actif'
+                    ? 'bg-emerald-100 border-emerald-500 hover:bg-emerald-50'
                     : hasVotedFor
                     ? 'bg-white border-emerald-300 shadow-2xs hover:border-emerald-500'
                     : hasVotedAgainst
@@ -791,6 +820,27 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     )}
                   </div>
                 </div>
+
+                {etatBulletin !== 'attente' && (
+                  <div className={`mt-1 flex items-center justify-center gap-1 rounded-md border px-1 py-0.5 text-[0.53125rem] font-bold ${
+                    etatBulletin === 'actif'
+                      ? 'border-emerald-400 bg-emerald-700 text-white'
+                      : 'border-rose-400 bg-rose-700 text-white'
+                  }`}>
+                    {etatBulletin === 'actif' ? (
+                      <><Smartphone className="w-2.5 h-2.5" /><span>BULLETIN ACTIF</span></>
+                    ) : (
+                      <><AlertCircle className="w-2.5 h-2.5" /><span>ERREUR BULLETIN</span></>
+                    )}
+                  </div>
+                )}
+
+                {etatBulletin === 'attente' && lienVote?.verrouille && (
+                  <div className="mt-1 flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-slate-100 px-1 py-0.5 text-[0.53125rem] font-bold text-slate-600">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>BULLETIN ATTRIBUÉ</span>
+                  </div>
+                )}
 
                 {/* Nom et fonction. Le nom peut se replier sur deux lignes : en séance,
                     un administrateur doit se reconnaître à sa place, pas déchiffrer
@@ -898,7 +948,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
         });
 
         // Other active voters who can receive a proxy
-        const potentialMandataires = activeVoters.filter(v => v.id !== selVoter.id);
+        const potentialMandataires = activeVoters.filter(v => v.id !== selVoter.id && (session.voterStates[v.id]?.presence ?? 'present') === 'present');
 
         return (
           <div 
@@ -958,6 +1008,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                 </label>
                 <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
                   <button
+                    disabled={session.status === 'closed'}
                     onClick={() => onSetPresence(selVoter.id, 'present')}
                     className={`py-2 px-3 rounded-xl border text-center transition flex items-center justify-center gap-1.5 ${
                       selState.presence === 'present'
@@ -969,13 +1020,15 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     Présent
                   </button>
                   <button
+                    disabled={session.status === 'closed'}
                     onClick={() => {
                       // Find first available mandataire who has < 2 proxies
                       const defaultCandidate = potentialMandataires.find(cand => {
                         const candCount = activeVoters.filter(v => session.voterStates[v.id]?.presence === 'proxy' && session.voterStates[v.id]?.proxyToId === cand.id && v.id !== selVoter.id).length;
                         return candCount < 2;
                       });
-                      onSetPresence(selVoter.id, 'proxy', defaultCandidate?.id || null);
+                      if (!defaultCandidate) { alert('Aucun mandataire présent disponible.'); return; }
+                      onSetPresence(selVoter.id, 'proxy', defaultCandidate.id);
                     }}
                     className={`py-2 px-3 rounded-xl border text-center transition flex items-center justify-center gap-1.5 ${
                       selState.presence === 'proxy'
@@ -987,6 +1040,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     Procuration
                   </button>
                   <button
+                    disabled={session.status === 'closed'}
                     onClick={() => onSetPresence(selVoter.id, 'absent')}
                     className={`py-2 px-3 rounded-xl border text-center transition flex items-center justify-center gap-1.5 ${
                       selState.presence === 'absent'
@@ -998,6 +1052,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     Absent
                   </button>
                   <button
+                    disabled={session.status === 'closed'}
                     onClick={() => onSetPresence(selVoter.id, 'excused')}
                     className={`py-2 px-3 rounded-xl border text-center transition flex items-center justify-center gap-1.5 ${
                       selState.presence === 'excused'
@@ -1028,7 +1083,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     onChange={(e) => onSetPresence(selVoter.id, 'proxy', e.target.value || null)}
                     className="w-full p-2.5 rounded-xl border border-amber-300 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   >
-                    <option value="">-- Choisir un membre mandataire --</option>
+                    <option value="" disabled>-- Choisir un membre mandataire --</option>
                     {potentialMandataires.map(cand => {
                       const count = activeVoters.filter(v => {
                         const vs = session.voterStates[v.id];
@@ -1145,6 +1200,44 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                       </div>
                     </div>
                   )}
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700">
+                      {liensVote[selVoter.id].verrouille ? (
+                        <>
+                          <Lock className="h-3.5 w-3.5 text-emerald-700" />
+                          Bulletin attribué à un téléphone
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone className="h-3.5 w-3.5 text-slate-500" />
+                          Bulletin disponible
+                        </>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={!liensVote[selVoter.id].verrouille}
+                        onClick={() => onDeverrouillerLien?.(selVoter.id)}
+                        className="flex items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-2 text-[0.6875rem] font-bold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Unlock className="h-3.5 w-3.5" />
+                        Libérer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRenouvelerLien?.(selVoter.id)}
+                        className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-2 py-2 text-[0.6875rem] font-bold text-rose-800 hover:bg-rose-100"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Nouveau QR
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[0.625rem] leading-snug text-slate-500">
+                      « Libérer » conserve ce QR. « Nouveau QR » révoque immédiatement
+                      l'ancien lien en cas de changement ou de panne du téléphone.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -1226,7 +1319,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                     return vs?.presence === 'proxy' && vs?.proxyToId === voter.id;
                   }).length;
 
-                  const potentialMandataires = activeVoters.filter(v => v.id !== voter.id);
+                  const potentialMandataires = activeVoters.filter(v => v.id !== voter.id && (session.voterStates[v.id]?.presence ?? 'present') === 'present');
 
                   return (
                     <div key={voter.id} className="py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-xl transition">
@@ -1271,7 +1364,8 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                               const c = activeVoters.filter(v => session.voterStates[v.id]?.presence === 'proxy' && session.voterStates[v.id]?.proxyToId === cand.id && v.id !== voter.id).length;
                               return c < 2;
                             });
-                            onSetPresence(voter.id, 'proxy', defaultCandidate?.id || null);
+                            if (!defaultCandidate) { alert('Aucun mandataire présent disponible.'); return; }
+                            onSetPresence(voter.id, 'proxy', defaultCandidate.id);
                           }}
                           className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1 ${
                             isProxy
@@ -1314,7 +1408,7 @@ export const OvalTable: React.FC<OvalTableProps> = ({
                             onChange={(e) => onSetPresence(voter.id, 'proxy', e.target.value || null)}
                             className="w-full p-1.5 rounded-lg border border-amber-300 bg-white text-xs font-medium text-slate-800"
                           >
-                            <option value="">-- Mandataire (2 max) --</option>
+                            <option value="" disabled>-- Mandataire (2 max) --</option>
                             {potentialMandataires.map(cand => {
                               const count = activeVoters.filter(v => {
                                 const vs = session.voterStates[v.id];
@@ -1399,9 +1493,20 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               Scannez ce code avec l'appareil photo de votre téléphone pour voter.
             </p>
             <p className="mt-1 text-sm text-slate-500 text-center">
-              Lien personnel, valable pour cette seule séance et pour un seul bulletin.
+              Le premier téléphone qui ouvre ce lien conserve le bulletin pour toute la séance.
               {pouvoirsPortes.length > 0 && ` Il emporte également ${pouvoirsPortes.length} pouvoir${pouvoirsPortes.length > 1 ? 's' : ''}.`}
             </p>
+            <div
+              className={`mt-3 flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold ${
+                lien.verrouille
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-slate-200 bg-slate-50 text-slate-600'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {lien.verrouille ? <Lock className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+              {lien.verrouille ? 'Bulletin attribué à un téléphone' : 'Bulletin disponible'}
+            </div>
             {etatMembre && etatMembre.presence !== 'present' && (
               <p className="mt-3 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
                 Ce membre n'est pas émargé présent : son bulletin sera refusé tant que
@@ -1409,12 +1514,31 @@ export const OvalTable: React.FC<OvalTableProps> = ({
               </p>
             )}
 
-            <button
-              onClick={() => setQrPleinEcranId(null)}
-              className="mt-8 px-8 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-base font-bold transition"
-            >
-              Fermer
-            </button>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                disabled={!lien.verrouille}
+                onClick={() => onDeverrouillerLien?.(membre.id)}
+                className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Unlock className="h-4 w-4" />
+                Libérer le bulletin
+              </button>
+              <button
+                type="button"
+                onClick={() => onRenouvelerLien?.(membre.id)}
+                className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-800 hover:bg-rose-100"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Révoquer et créer un nouveau QR
+              </button>
+              <button
+                onClick={() => setQrPleinEcranId(null)}
+                className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+              >
+                Fermer
+              </button>
+            </div>
           </div>
         );
       })()}

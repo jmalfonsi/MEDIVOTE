@@ -40,7 +40,7 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const activeVoters = voters.filter(v => v.isActive);
+  const activeVoters = voters.filter(v => v.isActive && (session?.selectedAttendeeIds ?? voters.map(v => v.id)).includes(v.id));
 
   // Filter by selected list if any
   const currentList = lists.find(l => l.id === selectedListFilter);
@@ -76,23 +76,12 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
     }
   };
 
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void soumettreCode(pin.trim());
-  };
-
-  const handleDigitClick = (digit: string) => {
-    if (pin.length < 6 && !verification) {
-      const nextPin = pin + digit;
-      setPin(nextPin);
-      setPinError(null);
-      if (nextPin.length === 6) void soumettreCode(nextPin);
-    }
-  };
-
-  const handleBackspace = () => {
-    setPin(prev => prev.slice(0, -1));
+  const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (verification) return;
+    const nextPin = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setPin(nextPin);
     setPinError(null);
+    if (nextPin.length === 6) void soumettreCode(nextPin);
   };
 
   return (
@@ -276,17 +265,34 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900">Accès Administrateur</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Saisissez le code administrateur pour déverrouiller la table et l'administration.
+                  Tapez le code administrateur au clavier pour déverrouiller la table et l'administration.
                 </p>
               </div>
 
-              {/* Pin Display Indicator */}
-              <div className="flex items-center justify-center gap-2">
+              {/* Saisie exclusivement au clavier, sans affichage des chiffres. */}
+              <label className="relative flex items-center justify-center gap-2 rounded-2xl focus-within:ring-2 focus-within:ring-emerald-500/30">
+                <span className="sr-only">Code administrateur à six chiffres</span>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  autoComplete="off"
+                  autoFocus
+                  value={pin}
+                  onChange={handlePinChange}
+                  onPaste={e => e.preventDefault()}
+                  onDrop={e => e.preventDefault()}
+                  disabled={verification}
+                  aria-label="Code administrateur à six chiffres"
+                  className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
+                />
                 {[0, 1, 2, 3, 4, 5].map((idx) => {
                   const isFilled = pin.length > idx;
                   return (
-                    <div
+                    <span
                       key={idx}
+                      aria-hidden="true"
                       className={`w-9 h-11 rounded-xl border flex items-center justify-center text-base font-bold font-mono transition-all ${
                         isFilled
                           ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20'
@@ -294,10 +300,10 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
                       } ${pinError ? 'border-rose-400 bg-rose-50 text-rose-800 animate-shake' : ''}`}
                     >
                       {isFilled ? '•' : ''}
-                    </div>
+                    </span>
                   );
                 })}
-              </div>
+              </label>
 
               {pinError && (
                 <div className="text-xs font-semibold text-rose-600 flex items-center justify-center gap-1.5 animate-in fade-in">
@@ -306,42 +312,9 @@ export const ModeSelectionModal: React.FC<ModeSelectionModalProps> = ({
                 </div>
               )}
 
-              {/* Numeric Keypad for tablets / touch screens */}
-              <div className="grid grid-cols-3 gap-2.5 max-w-[260px] mx-auto">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => {
-                      if (k === 'C') {
-                        setPin('');
-                        setPinError(null);
-                      } else if (k === '⌫') {
-                        handleBackspace();
-                      } else {
-                        handleDigitClick(k);
-                      }
-                    }}
-                    className={`h-11 rounded-xl font-bold text-sm transition flex items-center justify-center shadow-2xs ${
-                      k === 'C' || k === '⌫'
-                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                        : 'bg-white hover:bg-emerald-50 border border-slate-200 text-slate-800 hover:border-emerald-300'
-                    }`}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
-
-              <form onSubmit={handlePinSubmit} className="pt-2">
-                <button
-                  type="submit"
-                  disabled={pin.length !== 6 || verification}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs transition shadow-xs"
-                >
-                  {verification ? 'Vérification…' : "Valider le code d'accès"}
-                </button>
-              </form>
+              <p className="text-xs font-semibold text-slate-500">
+                {verification ? 'Vérification…' : 'Validation automatique après 6 chiffres · collage désactivé'}
+              </p>
             </div>
           )}
         </div>

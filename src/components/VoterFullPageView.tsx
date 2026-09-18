@@ -49,15 +49,13 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
   const [selectedSeatVoterId, setSelectedSeatVoterId] = useState<string | null>(null);
 
   // Strictly filter voters to the meeting's single active list
-  const meetingAttendeeIds = session?.selectedAttendeeIds && session.selectedAttendeeIds.length > 0
-    ? session.selectedAttendeeIds
-    : voters.map(v => v.id);
+  const meetingAttendeeIds = session?.selectedAttendeeIds ?? voters.filter(v => v.isActive).map(v => v.id);
 
   const activeVoters = voters.filter(v => v.isActive && meetingAttendeeIds.includes(v.id));
   const totalCount = activeVoters.length;
   
   // Active logged-in voter
-  const currentVoter = voters.find(v => v.id === activeVoterId) || activeVoters[0];
+  const currentVoter = activeVoters.find(v => v.id === activeVoterId) || activeVoters[0];
   const currentState = currentVoter && session ? session.voterStates[currentVoter.id] : null;
 
   // Proxies held by the logged-in voter
@@ -143,13 +141,13 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
   if (!session || !currentVoter) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 space-y-4">
-        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-        <p className="text-sm font-medium text-slate-300">Initialisation du terminal de vote...</p>
+        <p className="text-sm font-medium text-slate-300">{session ? 'Aucun membre convoqué pour ce vote.' : 'Aucune séance affichée.'}</p>
+        <button onClick={onRequestAdmin} className="px-4 py-2 rounded-lg bg-emerald-700">Administration</button>
       </div>
     );
   }
 
-  const isPresent = currentState?.presence === 'present' || currentState?.presence === 'proxy';
+  const isPresent = currentState?.presence === 'present';
   const hasVoted = currentState && currentState.vote !== 'pending';
 
   return (
@@ -550,7 +548,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
               </div>
             </div>
             <span className="text-[0.6875rem] font-bold bg-sky-600 text-white px-2 py-0.5 rounded-lg whitespace-nowrap">
-              Poids : {myHeldProxies.length + 1} voix
+              Poids : {(currentVoter.weight ?? 1) + myHeldProxies.reduce((sum, member) => sum + (member.weight ?? 1), 0)} voix
             </span>
           </div>
         )}
@@ -588,6 +586,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
             {/* Quick presence toggle */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs border border-slate-200">
               <button
+                disabled={session.status === 'closed'}
                 onClick={() => onSetPresence(currentVoter.id, 'present')}
                 className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'present'
@@ -598,12 +597,15 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 Présent
               </button>
               <button
+                disabled={session.status === 'closed'}
                 onClick={() => {
                   const defaultTarget = activeVoters.find(v => {
+                    if ((session.voterStates[v.id]?.presence ?? 'present') !== 'present') return false;
                     const c = activeVoters.filter(av => session?.voterStates[av.id]?.presence === 'proxy' && session?.voterStates[av.id]?.proxyToId === v.id && av.id !== currentVoter.id).length;
                     return v.id !== currentVoter.id && c < 2;
                   });
-                  onSetPresence(currentVoter.id, 'proxy', defaultTarget?.id || null);
+                  if (!defaultTarget) { alert('Aucun mandataire présent disponible.'); return; }
+                  onSetPresence(currentVoter.id, 'proxy', defaultTarget.id);
                 }}
                 className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'proxy'
@@ -614,6 +616,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
                 Procuration
               </button>
               <button
+                disabled={session.status === 'closed'}
                 onClick={() => onSetPresence(currentVoter.id, 'absent')}
                 className={`px-2 py-1 rounded-lg font-semibold transition text-[0.6875rem] ${
                   currentState?.presence === 'absent'
@@ -635,13 +638,14 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
           ) : !isPresent ? (
             <div className="text-xs font-bold text-amber-800 bg-amber-50 px-4 py-2 rounded-xl border border-amber-200 flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600" />
-              <span>Membre noté absent : passez en "Présent" pour voter.</span>
+              <span>{currentState?.presence === 'proxy' ? 'Vous avez donné pouvoir : le mandataire vote pour vous.' : 'Membre non présent : signalez votre présence pour voter.'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
               
               {/* POUR */}
               <button
+                disabled={session.status !== 'open'}
                 id="voter-btn-for"
                 onClick={() => handleCastVote('for')}
                 className={`flex-1 md:flex-initial py-2.5 sm:py-3 px-4 sm:px-6 rounded-2xl font-extrabold text-sm sm:text-base transition-all flex items-center justify-center gap-2 border shadow-sm active:scale-95 ${
@@ -657,6 +661,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
 
               {/* CONTRE */}
               <button
+                disabled={session.status !== 'open'}
                 id="voter-btn-against"
                 onClick={() => handleCastVote('against')}
                 className={`flex-1 md:flex-initial py-2.5 sm:py-3 px-4 sm:px-6 rounded-2xl font-extrabold text-sm sm:text-base transition-all flex items-center justify-center gap-2 border shadow-sm active:scale-95 ${
@@ -672,6 +677,7 @@ export const VoterFullPageView: React.FC<VoterFullPageViewProps> = ({
 
               {/* ABSTENTION */}
               <button
+                disabled={session.status !== 'open'}
                 id="voter-btn-abstain"
                 onClick={() => handleCastVote('abstain')}
                 className={`flex-1 md:flex-initial py-2.5 sm:py-3 px-4 sm:px-5 rounded-2xl font-bold text-sm sm:text-base transition-all flex items-center justify-center gap-2 border shadow-sm active:scale-95 ${

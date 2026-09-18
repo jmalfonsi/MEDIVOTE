@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -193,5 +193,151 @@ describe('liens de vote nominatifs', () => {
     const contexte = db.contexteVotant(lien.jeton)!;
     expect(contexte.aVote).toBe(true);
     expect(contexte.choix).toBeNull();
+  });
+
+  it('suit un bulletin mobile sans modifier le vote', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const debut = Date.now();
+      const lien = db.jetonVotePour(sessionId, membres[0].id);
+      const etat = () => db.etatsJetonsVote(sessionId).find(e => e.voterId === membres[0].id)!;
+      expect(etat().etatBulletin).toBe('attente');
+
+      db.marquerActiviteJetonVote(lien.jeton);
+      expect(etat().etatBulletin).toBe('actif');
+      expect(db.getSessionById(sessionId)!.voterStates[membres[0].id].vote).toBe('pending');
+
+      vi.setSystemTime(debut + 500);
+      db.marquerErreurJetonVote(lien.jeton, 'Bulletin refusé');
+      expect(etat()).toMatchObject({
+        etatBulletin: 'erreur',
+        erreurBulletin: 'Bulletin refusé',
+      });
+
+      vi.setSystemTime(debut + 1000);
+      db.marquerActiviteJetonVote(lien.jeton);
+      expect(etat().etatBulletin).toBe('erreur');
+
+      vi.setSystemTime(debut + (db.SECONDES_AFFICHAGE_ERREUR_BULLETIN + 2) * 1000);
+      db.marquerActiviteJetonVote(lien.jeton);
+      expect(etat().etatBulletin).toBe('actif');
+
+      vi.setSystemTime(
+        debut + (db.SECONDES_AFFICHAGE_ERREUR_BULLETIN + db.SECONDES_ACTIVITE_BULLETIN + 4) * 1000
+      );
+      expect(etat().etatBulletin).toBe('attente');
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('QR et changement de pouvoirs pendant une séance', () => {
+  it('conserve tous les liens après attribution et retrait d’un pouvoir', () => {
+    const links = membres.map(m => db.jetonVotePour(sessionId, m.id));
+    db.definirOuvertureScrutin(sessionId, true);
+    db.voterAvecJeton(links[0].jeton, 'for');
+    db.updateVoterPresence(sessionId, membres[1].id, 'proxy', membres[0].id);
+    expect(db.getSessionById(sessionId)!.voterStates[membres[1].id].vote).toBe('for');
+    expect(db.contexteVotant(links[0].jeton)!.pouvoirs).toHaveLength(1);
+    db.updateVoterPresence(sessionId, membres[1].id, 'present');
+    for (let i=0; i<links.length; i++) {
+      expect(db.jetonVotePour(sessionId, membres[i].id).jeton).toBe(links[i].jeton);
+      expect(db.contexteVotant(links[i].jeton)).not.toBeNull();
+    }
+  });
+
+  it('prolonge le même QR tant que l’écran de séance le distribue', () => {
+    vi.useFakeTimers({toFake:['Date']});
+    try {
+      const now=Date.now();
+      const first=db.jetonVotePour(sessionId,membres[0].id);
+      vi.setSystemTime(now+23*3600*1000);
+      const kept=db.jetonVotePour(sessionId,membres[0].id);
+      expect(kept.jeton).toBe(first.jeton);
+      expect(new Date(kept.expireLe).getTime()).toBeGreaterThan(new Date(first.expireLe).getTime());
+      vi.setSystemTime(now+25*3600*1000);
+      expect(db.contexteVotant(first.jeton)).not.toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('renouvelle les liens expirés sans modifier les pouvoirs ni les votes déjà déposés', () => {
+    vi.useFakeTimers({toFake:['Date']});
+    try {
+      const now=Date.now();
+      const links=membres.map(m=>db.jetonVotePour(sessionId,m.id));
+      db.updateVoterPresence(sessionId,membres[1].id,'proxy',membres[0].id);
+      db.definirOuvertureScrutin(sessionId,true);
+      db.voterAvecJeton(links[0].jeton,'for');
+      const before=db.getSessionById(sessionId);
+      vi.setSystemTime(now+25*3600*1000);
+      for(let i=0;i<links.length;i++) {
+        expect(db.contexteVotant(links[i].jeton)).toBeNull();
+        const renewed=db.jetonVotePour(sessionId,membres[i].id);
+        expect(renewed.jeton).not.toBe(links[i].jeton);
+        expect(db.contexteVotant(renewed.jeton)).not.toBeNull();
+        if(i===0) expect(()=>db.voterAvecJeton(renewed.jeton,'against')).toThrow(/une fois/);
+      }
+      expect(db.getSessionById(sessionId)).toEqual(before);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('verrouillage d’un bulletin sur le premier téléphone', () => {
+  const TELEPHONE_A = 'appareil-a-123456789012345678901234';
+  const TELEPHONE_B = 'appareil-b-123456789012345678901234';
+
+  it('accepte le premier téléphone et refuse tous les autres', () => {
+    const lien = db.jetonVotePour(sessionId, membres[0].id);
+
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_A)).not.toThrow();
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_A)).not.toThrow();
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_B)).toThrow(/récupéré sur un autre/i);
+  });
+
+  it('empêche un téléphone de récupérer deux bulletins de la même séance', () => {
+    const premier = db.jetonVotePour(sessionId, membres[0].id);
+    const second = db.jetonVotePour(sessionId, membres[1].id);
+
+    db.revendiquerJetonVote(premier.jeton, TELEPHONE_A);
+
+    expect(() => db.revendiquerJetonVote(second.jeton, TELEPHONE_A)).toThrow(/autre bulletin/i);
+  });
+
+  it('conserve le même téléphone pour toute la séance et ses résolutions', () => {
+    const lien = db.jetonVotePour(sessionId, membres[0].id);
+    db.revendiquerJetonVote(lien.jeton, TELEPHONE_A);
+    const seanceId = db.seanceDeResolution(sessionId)!;
+    const suivante = db.ajouterResolution(seanceId, {
+      title: 'Résolution suivante',
+      motionText: 'Le même bulletin continue.',
+    });
+    db.basculerResolution(suivante.id);
+
+    expect(db.jetonVotePour(suivante.id, membres[0].id).jeton).toBe(lien.jeton);
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_A)).not.toThrow();
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_B)).toThrow(/récupéré sur un autre/i);
+  });
+
+  it('permet à l’administrateur de libérer le même lien pour un nouveau téléphone', () => {
+    const lien = db.jetonVotePour(sessionId, membres[0].id);
+    db.revendiquerJetonVote(lien.jeton, TELEPHONE_A);
+
+    db.deverrouillerJetonVote(sessionId, membres[0].id);
+
+    expect(() => db.revendiquerJetonVote(lien.jeton, TELEPHONE_B)).not.toThrow();
+    expect(db.etatsJetonsVote(sessionId).find(e => e.voterId === membres[0].id)?.verrouille).toBe(true);
+  });
+
+  it('révoque l’ancien lien et génère un nouveau QR sans toucher aux suffrages', () => {
+    const ancien = db.jetonVotePour(sessionId, membres[0].id);
+    db.revendiquerJetonVote(ancien.jeton, TELEPHONE_A);
+    const avant = db.getSessionById(sessionId);
+
+    const nouveau = db.renouvelerJetonVote(sessionId, membres[0].id);
+
+    expect(nouveau.jeton).not.toBe(ancien.jeton);
+    expect(db.lireJetonVote(ancien.jeton)).toBeNull();
+    expect(() => db.revendiquerJetonVote(nouveau.jeton, TELEPHONE_B)).not.toThrow();
+    expect(db.getSessionById(sessionId)).toEqual(avant);
   });
 });

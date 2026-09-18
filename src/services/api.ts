@@ -9,6 +9,7 @@ import {
   VoterList,
   MotionTemplate,
   LienVote,
+  EtatLienVote,
   Seance
 } from '../types';
 
@@ -208,6 +209,32 @@ export const api = {
     const requete = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
     const res = await fetch(`/api/liens-vote${requete}`);
     return verifier(res, 'Erreur lors de la préparation des liens de vote');
+  },
+
+  /** Lit seulement l'activité des pages mobiles ; aucun QR code n'est régénéré. */
+  async getEtatsLiensVote(sessionId: string): Promise<{ etats: EtatLienVote[] }> {
+    const res = await fetch(`/api/liens-vote/etats?sessionId=${encodeURIComponent(sessionId)}`);
+    return verifier(res, "Erreur lors du suivi des bulletins mobiles");
+  },
+
+  /** Libère le QR actuel, qui pourra être revendiqué par le prochain téléphone. */
+  async deverrouillerLienVote(sessionId: string, voterId: string): Promise<EtatLienVote> {
+    const res = await fetch(`/api/liens-vote/${encodeURIComponent(voterId)}/deverrouiller`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    return verifier(res, 'Impossible de débloquer ce bulletin');
+  },
+
+  /** Révoque le lien actuel et renvoie un QR entièrement neuf. */
+  async renouvelerLienVote(sessionId: string, voterId: string): Promise<LienVote> {
+    const res = await fetch(`/api/liens-vote/${encodeURIComponent(voterId)}/renouveler`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    return verifier(res, 'Impossible de générer un nouveau bulletin');
   },
 
   async getActiveSession(): Promise<EtatSeance> {

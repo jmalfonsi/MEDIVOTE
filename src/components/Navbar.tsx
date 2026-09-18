@@ -535,6 +535,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onResetVotes}
+              disabled={session?.status === 'closed'}
               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white hover:bg-rose-50 hover:border-rose-300 border border-slate-200 text-slate-700 hover:text-rose-700 text-xs font-medium transition shadow-2xs"
               title="Réinitialiser tous les votes"
             >

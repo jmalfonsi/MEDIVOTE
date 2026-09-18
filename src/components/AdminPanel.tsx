@@ -45,6 +45,7 @@ import { VotingSession, Voter, MajorityType, MeetingItem, SessionHistoryItem, Vo
 import { getMajorityLabel } from '../utils/votingMath';
 import { api } from '../services/api';
 import { generateSessionPdfReport } from '../utils/pdfExport';
+import { archivedReport } from '../utils/historySnapshot';
 import { PREDEFINED_LOCATIONS } from '../constants/locations';
 
 interface AdminPanelProps {
@@ -209,7 +210,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSeanceDate(se.scheduledDate);
     setSeanceTime(se.scheduledTime);
     setSeanceLocation(se.location);
-    setSeanceAttendees(se.selectedAttendeeIds.length > 0 ? se.selectedAttendeeIds : voters.filter(v => v.isActive).map(v => v.id));
+    setSeanceAttendees(se.selectedAttendeeIds);
     setIsSeanceFormOpen(true);
   };
 
@@ -257,7 +258,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setMajorityRequired(m.majorityRequired);
       setQuorumPct(m.quorumPct ?? 0);
       setIsSecret(m.isSecret);
-      setSelectedAttendeeIds(session?.id === m.id && session.selectedAttendeeIds ? session.selectedAttendeeIds : voters.map(v => v.id));
+      setSelectedAttendeeIds(m.selectedAttendeeIds ?? voters.filter(v => v.isActive).map(v => v.id));
     } else {
       // New meeting blank - Quorum defaults to 0%
       setEditingMeetingId(null);
@@ -993,8 +994,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
-                          onClick={() => { if (close) generateSessionPdfReport({ ...(session as any), ...r, voterStates: {}, seanceId: r.seanceId, ordre: r.ordre } as VotingSession, voters); }}
-                          disabled={!close}
+                          onClick={() => {
+                            const item = history.find(h => h.sessionId === r.id);
+                            if (!item) { alert('Ce vote n’a pas de procès-verbal archivé.'); return; }
+                            try { const report = archivedReport(item); generateSessionPdfReport(report.session, report.voters, report.stats); }
+                            catch (error) { alert((error as Error).message); }
+                          }}
+                          disabled={!close || !history.some(h => h.sessionId === r.id)}
                           className={`p-1.5 rounded-lg border transition ${
                             close
                               ? 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs'
@@ -1095,15 +1101,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* TAB 2: ATTENDANCE & PROXIES MANAGEMENT (2 PROXIES MAX) */}
       {activeTab === 'attendance' && (
-        <div className="space-y-6 animate-in fade-in">
+        <fieldset disabled={session?.status === 'closed'} className="space-y-6 animate-in fade-in">
+          {session?.status === 'closed' && <p className="text-sm text-slate-600">Émargement scellé. Sélectionnez un vote non clôturé pour modifier la présence de la séance.</p>}
           
           {/* Active Session Summary & Quorum Card */}
           {session ? (() => {
-            const meetingAttendeeIds = session.selectedAttendeeIds && session.selectedAttendeeIds.length > 0
-              ? session.selectedAttendeeIds
-              : voters.map(v => v.id);
+            const item = session.status === 'closed' ? history.find(h => h.sessionId === session.id && h.detailedSnapshot?.session && Array.isArray(h.detailedSnapshot?.voters)) : undefined;
+            const report = item ? archivedReport(item) : undefined;
+            return ((session: VotingSession, voters: Voter[]) => {
+            const meetingAttendeeIds = session.selectedAttendeeIds ?? voters.filter(v => v.isActive).map(v => v.id);
 
-            const sessionVoters = voters.filter(v => meetingAttendeeIds.includes(v.id));
+            const sessionVoters = voters.filter(v => v.isActive && meetingAttendeeIds.includes(v.id));
             const presentCount = sessionVoters.filter(v => session.voterStates[v.id]?.presence === 'present').length;
             const proxyCount = sessionVoters.filter(v => session.voterStates[v.id]?.presence === 'proxy').length;
             const absentCount = sessionVoters.filter(v => session.voterStates[v.id]?.presence === 'absent' || session.voterStates[v.id]?.presence === 'excused').length;
@@ -1198,7 +1206,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {totalEffectiveVoters}
                       </strong>
                       <span className="text-xs text-slate-500 font-medium">
-                        / {sessionVoters.length} voix{quorumPct === 0 ? '' : ` · ${quorumPct} % requis`}
+                        / {sessionVoters.length} membres{quorumPct === 0 ? '' : ` · ${quorumPct} % requis`}
                       </span>
                     </div>
                     <span className={`text-[0.6875rem] font-semibold block mt-0.5 ${isQuorumReached ? 'text-emerald-700' : 'text-rose-700'}`}>
@@ -1280,10 +1288,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     onClick={() => {
                                       // Find first eligible person with < 2 proxies
                                       const defaultTarget = sessionVoters.find(cand => {
+                                        if ((session.voterStates[cand.id]?.presence ?? 'present') !== 'present') return false;
                                         const c = sessionVoters.filter(v => session.voterStates[v.id]?.presence === 'proxy' && session.voterStates[v.id]?.proxyToId === cand.id && v.id !== voter.id).length;
                                         return cand.id !== voter.id && c < 2;
                                       });
-                                      onSetPresence?.(voter.id, 'proxy', defaultTarget?.id || null);
+                                      if (!defaultTarget) { alert('Aucun mandataire présent disponible.'); return; }
+                                      onSetPresence?.(voter.id, 'proxy', defaultTarget.id);
                                     }}
                                     className={`px-2 py-1 rounded-lg text-[0.6875rem] font-semibold transition ${
                                       state.presence === 'proxy'
@@ -1316,9 +1326,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       onChange={(e) => onSetPresence?.(voter.id, 'proxy', e.target.value || null)}
                                       className="px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500 max-w-[200px]"
                                     >
-                                      <option value="">-- Choisir le mandataire --</option>
+                                      <option value="" disabled>-- Choisir le mandataire --</option>
                                       {sessionVoters
-                                        .filter(candidate => candidate.id !== voter.id)
+                                        .filter(candidate => candidate.id !== voter.id && (session.voterStates[candidate.id]?.presence ?? 'present') === 'present')
                                         .map(candidate => {
                                           const count = sessionVoters.filter(v => {
                                             const vs = session.voterStates[v.id];
@@ -1364,7 +1374,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       ? 'bg-sky-600 text-white' 
                                       : 'bg-slate-100 text-slate-800'
                                   }`}>
-                                    {1 + heldProxies.length} voix
+                                    {(voter.weight ?? 1) + heldProxies.reduce((sum, member) => sum + (member.weight ?? 1), 0)} voix
                                   </span>
                                 ) : state.presence === 'proxy' ? (
                                   <span className="text-[0.6875rem] text-amber-700 font-semibold">
@@ -1402,6 +1412,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               </div>
             );
+            })(report?.session ?? session, report?.voters ?? voters);
           })() : (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center space-y-3">
               <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
@@ -1410,7 +1421,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 3: LISTS & COLLEGES MANAGEMENT (CA, CC, BUREAU, CUSTOM) */}

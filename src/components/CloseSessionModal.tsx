@@ -12,7 +12,7 @@ import {
   Clock
 } from 'lucide-react';
 import { VotingSession, Voter, VoteStatistics } from '../types';
-import { getMajorityLabel } from '../utils/votingMath';
+import { getMajorityLabel, calculateVoteStatistics } from '../utils/votingMath';
 
 interface CloseSessionModalProps {
   session: VotingSession;
@@ -26,13 +26,15 @@ interface CloseSessionModalProps {
 export const CloseSessionModal: React.FC<CloseSessionModalProps> = ({
   session,
   voters,
-  stats,
+  stats: liveStats,
   isOpen,
   onClose,
   onConfirmClose,
 }) => {
   if (!isOpen) return null;
 
+  const stats = session.isSecret ? liveStats : calculateVoteStatistics(session, voters, { finaliser: true });
+  const resultLabel = session.isSecret ? 'DÉPOUILLEMENT À LA CLÔTURE' : stats.outcome === 'adopted' ? 'RÉSOLUTION ADOPTÉE' : stats.outcome === 'rejected' ? 'RÉSOLUTION REJETÉE' : !stats.quorumReached ? 'QUORUM NON ATTEINT' : 'AUCUN SUFFRAGE EXPRIMÉ';
   const isAdopted = stats.outcome === 'adopted';
   const isRejected = stats.outcome === 'rejected';
 
@@ -85,7 +87,7 @@ export const CloseSessionModal: React.FC<CloseSessionModalProps> = ({
               {isRejected && <XCircle className="w-5 h-5 text-rose-600" />}
               {!isAdopted && !isRejected && <AlertCircle className="w-5 h-5 text-amber-600" />}
               <span>
-                {isAdopted ? 'RÉSOLUTION ADOPTÉE' : isRejected ? 'RÉSOLUTION REJETÉE' : 'QUORUM NON ATTEINT'}
+                {resultLabel}
               </span>
             </div>
             <p className="text-xs opacity-80">
@@ -93,7 +95,7 @@ export const CloseSessionModal: React.FC<CloseSessionModalProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          {!session.isSecret && <div className="grid grid-cols-3 gap-2 text-center text-xs">
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-emerald-700 font-bold text-base block">{stats.votesFor}</span>
               <span className="text-slate-500">Pour ({stats.forPercentage}%)</span>
@@ -106,7 +108,8 @@ export const CloseSessionModal: React.FC<CloseSessionModalProps> = ({
               <span className="text-slate-700 font-bold text-base block">{stats.votesAbstain}</span>
               <span className="text-slate-500">Abstention</span>
             </div>
-          </div>
+          </div>}
+          <p className="text-xs text-slate-600">Les présents et représentés n’ayant pas voté seront comptés en abstention à la clôture.</p>
         </div>
 
         {/* Warning info */}

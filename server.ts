@@ -1,3 +1,4 @@
+import { createVoteRateLimiter } from './server/voteRateLimit';
 import express, { Response } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -53,6 +54,12 @@ import {
   voterAvecJeton,
   purgerJetonsVoteExpires,
   HEURES_VALIDITE_LIEN,
+  etatsJetonsVote,
+  marquerActiviteJetonVote,
+  marquerErreurJetonVote,
+  revendiquerJetonVote,
+  deverrouillerJetonVote,
+  renouvelerJetonVote,
 } from './server/db';
 import { lienDeVote, qrDataUri } from './server/qr';
 import {
@@ -244,46 +251,39 @@ async function startServer() {
    * ------------------------------------------------------------------ */
 
   // Un lien de vote ne doit pas pouvoir être cherché à l'aveugle.
-  const tentativesVote = new Map<string, { compte: number; remiseA: number }>();
-  function limiterCadence(req: any, res: any, next: any): void {
-    const cle = req.ip || 'inconnu';
-    const maintenant = Date.now();
-    const etat = tentativesVote.get(cle);
-    if (!etat || etat.remiseA <= maintenant) {
-      tentativesVote.set(cle, { compte: 1, remiseA: maintenant + 60_000 });
-      return next();
-    }
-    etat.compte += 1;
-    if (etat.compte > 60) {
-      res.status(429).json({ error: 'Trop de requêtes. Patientez une minute.' });
-      return;
-    }
-    next();
-  }
+  const limiterCadence = createVoteRateLimiter();
 
   app.get('/api/scrutin/:jeton', limiterCadence, (req, res) => {
+    const jeton = String(req.params.jeton);
     try {
-      const contexte = contexteVotant(String(req.params.jeton));
+      revendiquerJetonVote(jeton, String(req.get('X-Medivote-Appareil') || ''));
+      const contexte = contexteVotant(jeton);
       if (!contexte) {
+        marquerErreurJetonVote(jeton, "Ce lien de vote n'est plus valable.");
         return res.status(404).json({ error: "Ce lien de vote n'est plus valable." });
       }
+      marquerActiviteJetonVote(jeton);
       res.json(contexte);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      marquerErreurJetonVote(jeton, err.message);
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
   app.post('/api/scrutin/:jeton/bulletin', limiterCadence, (req, res) => {
+    const jeton = String(req.params.jeton);
     try {
+      revendiquerJetonVote(jeton, String(req.get('X-Medivote-Appareil') || ''));
       const vote = String(req.body?.vote || '');
       if (!['for', 'against', 'abstain'].includes(vote)) {
         return res.status(400).json({ error: 'Suffrage invalide.' });
       }
 
       const { session, voterId, pouvoirs } = voterAvecJeton(
-        String(req.params.jeton),
+        jeton,
         vote as 'for' | 'against' | 'abstain'
       );
+      marquerActiviteJetonVote(jeton, true);
 
       const votant = getAllVoters().find(v => v.id === voterId);
       const nom = votant ? `${votant.title} ${votant.name}` : voterId;
@@ -303,8 +303,9 @@ async function startServer() {
 
       res.json({ enregistre: true, pouvoirs, secret: Boolean(session.isSecret) });
     } catch (err: any) {
+      marquerErreurJetonVote(jeton, err.message);
       const conflit = /valable|déjà|clôturé|ouvert|émargé|pouvoir|convoqués/i.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -323,7 +324,7 @@ async function startServer() {
     sseClients.push({ id: clientId, res });
 
     // Send initial connected ping
-    res.write(`data: ${JSON.stringify({ type: 'info', title: 'Connecté', message: 'Système temps réel connecté', timestamp: new Date().toISOString() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'connected', title: 'Connecté', message: 'Système temps réel connecté', timestamp: new Date().toISOString() })}\n\n`);
 
     // Keep alive heartbeat every 20 seconds
     const interval = setInterval(() => {
@@ -343,7 +344,7 @@ async function startServer() {
       const events = getRecentEvents(60);
       res.json({ notifications: events });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -352,7 +353,7 @@ async function startServer() {
       clearEvents();
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -362,7 +363,7 @@ async function startServer() {
       const meetings = getAllMeetings();
       res.json({ meetings });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -381,7 +382,7 @@ async function startServer() {
 
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -406,7 +407,7 @@ async function startServer() {
       res.json(etatComplet());
     } catch (err: any) {
       const conflit = /introuvable|clôturée|réactivée/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -415,7 +416,7 @@ async function startServer() {
       deleteMeeting(req.params.id);
       res.json({ success: true, ...etatComplet() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -436,7 +437,7 @@ async function startServer() {
 
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -452,7 +453,7 @@ async function startServer() {
     try {
       res.json({ seances: getAllSeances(), seance: getSeanceActive() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -473,7 +474,7 @@ async function startServer() {
 
       res.json({ ...etatComplet(), seanceEnregistree: seance });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -495,7 +496,7 @@ async function startServer() {
       res.json(etatComplet());
     } catch (err: any) {
       const conflit = /introuvable|clôturée/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -520,7 +521,7 @@ async function startServer() {
       res.json({ ...etatComplet(), history: getHistory(), seanceClose: seance });
     } catch (err: any) {
       const conflit = /introuvable|déjà clôturée|encore ouverte/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -530,7 +531,7 @@ async function startServer() {
       res.json({ success: true, ...etatComplet() });
     } catch (err: any) {
       const conflit = /scellée|clôturée/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -551,7 +552,7 @@ async function startServer() {
       res.json({ ...etatComplet(), resolution });
     } catch (err: any) {
       const conflit = /introuvable|clôturée/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -574,7 +575,7 @@ async function startServer() {
       res.json(etatComplet());
     } catch (err: any) {
       const conflit = /introuvable/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -585,9 +586,17 @@ async function startServer() {
         return res.status(400).json({ error: 'Séance ou ordre manquant.' });
       }
       reordonnerResolutions(String(seanceId), ordreIds.map(String));
+      const notif = logEvent({
+        type: 'meeting_switched',
+        title: 'Ordre du jour réorganisé',
+        message: "L'ordre des résolutions a été mis à jour.",
+        sessionId: getSeanceById(String(seanceId))?.resolutionCouranteId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -596,7 +605,7 @@ async function startServer() {
     try {
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -625,7 +634,7 @@ async function startServer() {
       // remplaçait de surcroît le vote présenté par celui qu'on venait d'éditer.
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -660,7 +669,7 @@ async function startServer() {
     } catch (err: any) {
       // Scrutin fermé ou séance inconnue : erreur de manipulation, pas panne serveur.
       const conflit = /scrutin|clôturée|introuvable/i.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -690,7 +699,7 @@ async function startServer() {
 
       res.json(etat);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -718,7 +727,7 @@ async function startServer() {
       res.json(etatComplet());
     } catch (err: any) {
       const conflit = /clôturée|introuvable/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -739,9 +748,8 @@ async function startServer() {
       if (!seance) return res.status(404).json({ error: 'Séance introuvable.' });
       if (seance.closedAt) return res.json({ sessionId, seanceId, liens: [] });
 
-      const convoques = seance.selectedAttendeeIds.length > 0
-        ? seance.selectedAttendeeIds
-        : Object.keys(getSessionById(sessionId)?.voterStates || {});
+      const actifs = new Set(getAllVoters().filter(v => v.isActive).map(v => v.id));
+      const convoques = seance.selectedAttendeeIds.filter(id => actifs.has(id));
       const liens = await Promise.all(convoques.map(async (voterId) => {
         const jeton = jetonVotePour(seanceId, voterId);
         const url = lienDeVote(req, jeton.jeton);
@@ -751,12 +759,100 @@ async function startServer() {
           qr: await qrDataUri(url),
           expireLe: jeton.expireLe,
           utilise: Boolean(jeton.utiliseLe),
+          verrouille: Boolean(jeton.empreinteAppareil),
+          verrouilleLe: jeton.verrouilleLe,
         };
       }));
 
       res.json({ sessionId, seanceId, liens, heuresValidite: HEURES_VALIDITE_LIEN });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  /** État de santé des pages mobiles, interrogé fréquemment sans recalculer les QR. */
+  app.get('/api/liens-vote/etats', (req, res) => {
+    try {
+      const sessionId = String(req.query.sessionId || '') || getActiveSession()?.id;
+      if (!sessionId) return res.status(400).json({ error: 'Aucune séance active.' });
+      res.json({ etats: etatsJetonsVote(sessionId) });
+    } catch (err: any) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  /** Libère le QR existant. L'ancien téléphone doit être fermé avant ce geste. */
+  app.post('/api/liens-vote/:voterId/deverrouiller', (req, res) => {
+    try {
+      const sessionId = String(req.body?.sessionId || '') || getActiveSession()?.id;
+      if (!sessionId) return res.status(400).json({ error: 'Aucune séance active.' });
+      const seanceId = seanceDeResolution(sessionId) || sessionId;
+      const seance = getSeanceById(seanceId);
+      const voterId = String(req.params.voterId);
+      if (!seance) return res.status(404).json({ error: 'Séance introuvable.' });
+      if (seance.closedAt) return res.status(409).json({ error: 'Cette séance est clôturée.' });
+      if (!seance.selectedAttendeeIds.includes(voterId)) {
+        return res.status(409).json({ error: "Ce membre n'est pas convoqué à cette séance." });
+      }
+      const lien = deverrouillerJetonVote(seanceId, voterId);
+      const notif = logEvent({
+        type: 'ballot_link_changed',
+        title: 'Bulletin libéré',
+        message: 'Un bulletin a été libéré par l’administrateur.',
+        sessionId,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+      res.json({
+        voterId: lien.voterId,
+        verrouille: false,
+        verrouilleLe: null,
+        etatBulletin: 'attente',
+        dernierAccesLe: null,
+        erreurBulletin: null,
+      });
+    } catch (err: any) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  /** Révoque l'ancien jeton et renvoie immédiatement un QR neuf. */
+  app.post('/api/liens-vote/:voterId/renouveler', async (req, res) => {
+    try {
+      const sessionId = String(req.body?.sessionId || '') || getActiveSession()?.id;
+      if (!sessionId) return res.status(400).json({ error: 'Aucune séance active.' });
+      const seanceId = seanceDeResolution(sessionId) || sessionId;
+      const seance = getSeanceById(seanceId);
+      const voterId = String(req.params.voterId);
+      if (!seance) return res.status(404).json({ error: 'Séance introuvable.' });
+      if (seance.closedAt) return res.status(409).json({ error: 'Cette séance est clôturée.' });
+      if (!seance.selectedAttendeeIds.includes(voterId)) {
+        return res.status(409).json({ error: "Ce membre n'est pas convoqué à cette séance." });
+      }
+      const jeton = renouvelerJetonVote(seanceId, voterId);
+      const url = lienDeVote(req, jeton.jeton);
+      const notif = logEvent({
+        type: 'ballot_link_changed',
+        title: 'Nouveau bulletin',
+        message: 'Un nouveau lien de bulletin a été généré par l’administrateur.',
+        sessionId,
+        timestamp: new Date().toISOString(),
+      });
+      broadcastSSE(notif);
+      res.json({
+        voterId: jeton.voterId,
+        url,
+        qr: await qrDataUri(url),
+        expireLe: jeton.expireLe,
+        utilise: Boolean(jeton.utiliseLe),
+        verrouille: false,
+        verrouilleLe: null,
+        etatBulletin: 'attente',
+        dernierAccesLe: null,
+        erreurBulletin: null,
+      });
+    } catch (err: any) {
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -765,7 +861,7 @@ async function startServer() {
     try {
       res.json({ templates: getAllTemplates() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -785,7 +881,7 @@ async function startServer() {
       });
       res.json({ template, templates: getAllTemplates() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -794,7 +890,7 @@ async function startServer() {
       deleteTemplate(req.params.id);
       res.json({ success: true, templates: getAllTemplates() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -814,7 +910,7 @@ async function startServer() {
 
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -835,7 +931,7 @@ async function startServer() {
         ? 'RÉSOLUTION ADOPTÉE' 
         : stats.outcome === 'rejected' 
           ? 'RÉSOLUTION REJETÉE' 
-          : 'QUORUM NON ATTEINT';
+          : stats.outcome === 'quorum_not_reached' ? 'QUORUM NON ATTEINT' : 'AUCUN SUFFRAGE EXPRIMÉ';
 
       const mentionAssimilees = stats.abstentionsAssimilees > 0
         ? ` Dont ${stats.abstentionsAssimilees} non-votant(s) présent(s) assimilé(s) à une abstention.`
@@ -861,7 +957,7 @@ async function startServer() {
       // Séance introuvable ou déjà clôturée : c'est une erreur de manipulation,
       // pas une panne du serveur — l'écran doit le dire tel quel.
       const conflit = /déjà clôturée|introuvable/.test(err.message || '');
-      res.status(conflit ? 409 : 500).json({ error: err.message });
+      res.status(err.status || (conflit ? 409 : 500)).json({ error: err.message });
     }
   });
 
@@ -871,7 +967,7 @@ async function startServer() {
       const voters = getAllVoters();
       res.json({ voters });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -880,7 +976,7 @@ async function startServer() {
       const voter = saveVoter(req.body);
       res.json({ voter, ...etatComplet() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -889,7 +985,7 @@ async function startServer() {
       deleteVoter(req.params.id);
       res.json({ success: true, ...etatComplet() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -910,7 +1006,7 @@ async function startServer() {
 
       res.json({ ...result, lists, ...etatComplet() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -920,7 +1016,7 @@ async function startServer() {
       const lists = getAllVoterLists();
       res.json({ lists });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -930,7 +1026,7 @@ async function startServer() {
       const lists = getAllVoterLists();
       res.json({ list, lists });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -940,7 +1036,7 @@ async function startServer() {
       const lists = getAllVoterLists();
       res.json({ success: true, lists });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -961,7 +1057,7 @@ async function startServer() {
 
       res.json(etatComplet());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -971,7 +1067,7 @@ async function startServer() {
       const history = getHistory();
       res.json({ history });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -981,7 +1077,7 @@ async function startServer() {
       const history = getHistory();
       res.json({ success: true, history });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -991,7 +1087,7 @@ async function startServer() {
       await resetToDemoData();
       res.json({ ...etatComplet(), history: getHistory() });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 

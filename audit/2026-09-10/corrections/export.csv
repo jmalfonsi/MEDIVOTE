@@ -1,0 +1,5 @@
+﻿"ID","Reference","Titre","Date","Heure","Eligibles","Presents","Pour","Contre","Abstention","Resultat","Regle"
+"hist_3ed5b477-338e-4472-b67d-298b0aa59e0d","AUDIT#CSV/R1","Contrôle CSV","2026-09-10","14:30","4","4","0","0","4","rejected","simple"
+"hist_23fc0b5b-bb47-4d3c-8e2d-5f959e7107bd","COMPLEMENT/R1","Contrôle complémentaire","2026-09-10","14:30","4","4","1","0","3","adopted","simple"
+"hist_81d0b26e-a980-464a-bb83-374666ad6d07","COMPLEMENT/R1","Contrôle complémentaire","2026-09-10","14:30","4","4","1","0","3","adopted","simple"
+"hist_097e20a4-a207-4f3e-8ba4-6664b9536083","AUDIT-HTTP/R1","Budget de contrôle","2026-09-10","14:30","4","4","1","0","3","rejected","absolute"

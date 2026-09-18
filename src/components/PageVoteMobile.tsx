@@ -25,11 +25,11 @@ interface Contexte {
   /** Résolution en cours. Son identifiant change quand la séance passe au point suivant. */
   resolution: { id: string; ordre: number; total: number; referenceCode: string; title: string };
   seanceClose: boolean;
-  votant: { name: string; title: string; seatNumber: number };
+  votant: { name: string; title: string; seatNumber: number; weight: number };
   presence: string;
   aVote: boolean;
   choix: string | null;
-  pouvoirs: { name: string; title: string }[];
+  pouvoirs: { name: string; title: string; weight: number }[];
   expireLe: string;
 }
 
@@ -51,10 +51,29 @@ function dateEnToutesLettres(iso: string, heure: string): string {
   return `${jour.charAt(0).toUpperCase()}${jour.slice(1)} à ${heure}`;
 }
 
+const CLE_APPAREIL_BULLETIN = 'medivote.appareil-bulletin';
+
+/** Clé aléatoire propre à ce navigateur. Le serveur n'en conserve que l'empreinte. */
+function identifiantAppareilBulletin(): string {
+  try {
+    const existant = localStorage.getItem(CLE_APPAREIL_BULLETIN);
+    if (existant) return existant;
+    const nouveau = typeof crypto.randomUUID === 'function'
+      ? `${crypto.randomUUID()}-${crypto.randomUUID()}`
+      : Array.from(crypto.getRandomValues(new Uint32Array(8)), n => n.toString(16).padStart(8, '0')).join('');
+    localStorage.setItem(CLE_APPAREIL_BULLETIN, nouveau);
+    return nouveau;
+  } catch (_) {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
+  const [identifiantAppareil] = useState(identifiantAppareilBulletin);
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [chargement, setChargement] = useState(true);
   const [erreurLien, setErreurLien] = useState<string | null>(null);
+  const [erreurPermanente, setErreurPermanente] = useState(false);
   const [erreurVote, setErreurVote] = useState<string | null>(null);
   const [aConfirmer, setAConfirmer] = useState<Choix | null>(null);
   const [envoi, setEnvoi] = useState(false);
@@ -62,14 +81,18 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
 
   const charger = useCallback(async () => {
     try {
-      const res = await fetch(`/api/scrutin/${encodeURIComponent(jeton)}`);
+      const res = await fetch(`/api/scrutin/${encodeURIComponent(jeton)}`, {
+        headers: { 'X-Medivote-Appareil': identifiantAppareil },
+      });
       if (!res.ok) {
         const detail = await res.json().catch(() => null);
         setErreurLien(detail?.error || "Ce lien de vote n'est plus valable.");
+        setErreurPermanente(res.status === 404 || res.status === 410 || res.status === 423);
         setContexte(null);
         return;
       }
       setErreurLien(null);
+      setErreurPermanente(false);
       const recu: Contexte = await res.json();
       setContexte(precedent => {
         /*
@@ -78,7 +101,7 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
          * confirmation du bulletin précédent, et le membre a de nouveau trois
          * boutons devant lui — sans avoir à rescanner quoi que ce soit.
          */
-        if (precedent && precedent.resolution?.id !== recu.resolution?.id) {
+        if (precedent && (precedent.resolution?.id !== recu.resolution?.id || (precedent.aVote && !recu.aVote))) {
           setConfirmation(null);
           setErreurVote(null);
           setAConfirmer(null);
@@ -87,10 +110,11 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
       });
     } catch (_) {
       setErreurLien('Connexion impossible. Vérifiez le réseau de la salle.');
+      setErreurPermanente(false);
     } finally {
       setChargement(false);
     }
-  }, [jeton]);
+  }, [jeton, identifiantAppareil]);
 
   useEffect(() => {
     charger();
@@ -103,10 +127,10 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
    * Seule la clôture de la séance, ou un lien mort, arrête la surveillance.
    */
   useEffect(() => {
-    if (erreurLien || contexte?.seanceClose) return;
+    if (erreurPermanente || contexte?.seanceClose) return;
     const minuterie = setInterval(charger, 5000);
     return () => clearInterval(minuterie);
-  }, [charger, erreurLien, contexte?.seanceClose]);
+  }, [charger, erreurPermanente, contexte?.seanceClose]);
 
   const envoyer = async (choix: Choix) => {
     setEnvoi(true);
@@ -114,7 +138,10 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
     try {
       const res = await fetch(`/api/scrutin/${encodeURIComponent(jeton)}/bulletin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Medivote-Appareil': identifiantAppareil,
+        },
         body: JSON.stringify({ vote: choix }),
       });
       const donnees = await res.json().catch(() => null);
@@ -173,13 +200,20 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
             Rapprochez-vous de l'administrateur de séance : il peut réafficher votre QR code
             sur l'écran de la salle.
           </p>
+          <button
+            type="button"
+            onClick={() => { setChargement(true); void charger(); }}
+            className="mt-5 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800"
+          >
+            Réessayer
+          </button>
         </div>
       </Cadre>
     );
   }
 
   const { seance, votant, pouvoirs } = contexte;
-  const voix = 1 + pouvoirs.length;
+  const voix = (votant.weight ?? 1) + pouvoirs.reduce((sum, member) => sum + (member.weight ?? 1), 0);
 
   // Bulletin déposé : à l'instant, ou lors d'un passage précédent sur cette page.
   const dejaVote = Boolean(confirmation) || contexte.aVote;
@@ -247,7 +281,7 @@ export const PageVoteMobile: React.FC<{ jeton: string }> = ({ jeton }) => {
             {confirmation && !confirmation.secret && (
               <p className="mt-2 text-sm text-slate-600">
                 Vous avez voté <strong>{LIBELLES[confirmation.choix]}</strong>
-                {confirmation.pouvoirs > 0 && ` pour ${confirmation.pouvoirs + 1} voix`}.
+                {voix > 1 && ` pour ${voix} voix`}.
               </p>
             )}
             {!confirmation && contexte.choix && !seance.isSecret && (

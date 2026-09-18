@@ -12,7 +12,8 @@ import {
   Seance
 } from './types';
 import { api, auth, SessionExpiree, EtatSeance } from './services/api';
-import { calculateVoteStatistics } from './utils/votingMath';
+import { calculateVoteStatistics, sessionVoters } from './utils/votingMath';
+import { archivedReport } from './utils/historySnapshot';
 import { prechargerLogo } from './utils/pdfExport';
 import { Navbar } from './components/Navbar';
 import { OvalTable } from './components/OvalTable';
@@ -59,6 +60,8 @@ export default function App() {
    * de la composition de la séance : inutile de les redemander à chaque suffrage.
    */
   const [liensVote, setLiensVote] = useState<Record<string, LienVote>>({});
+  const [relanceLiens, setRelanceLiens] = useState<number>(0);
+  const rechargerLiensVote = useCallback(() => setRelanceLiens(n => n + 1), []);
 
   /*
    * Affichage simplifié : ne laisse que l'essentiel à l'écran pendant la séance.
@@ -219,18 +222,11 @@ export default function App() {
             // Add to live notifications list (newest first, max 50)
             setNotifications((prev) => [data, ...prev.slice(0, 49)]);
 
-            // If the event affects session state or meetings, refresh active session and meetings
-            if (
-              data.type === 'vote_cast' ||
-              data.type === 'vote_reset' ||
-              data.type === 'vote_started' ||
-              data.type === 'vote_ended' ||
-              data.type === 'presence_changed' ||
-              data.type === 'meeting_created' ||
-              data.type === 'meeting_switched'
-            ) {
-              api.getActiveSession().then(appliquerEtat).catch(() => {});
-            }
+            // Toute notification diffusée correspond à une mutation serveur.
+            // Les deux navigateurs (projection et administration) relisent donc
+            // le même état, y compris après une correction de texte ou d'ordre.
+            api.getActiveSession().then(appliquerEtat).catch(() => {});
+            if (data.type === 'ballot_link_changed') setRelanceLiens(n => n + 1);
           } catch (_) {}
         };
 
@@ -252,8 +248,13 @@ export default function App() {
     };
   }, [appliquerEtat]);
 
-  // Compute live statistics
-  const stats = calculateVoteStatistics(session, voters);
+  // Un résultat clôturé reste celui de l'archive, même si le répertoire évolue.
+  const closedArchive = session?.status === 'closed'
+    ? history.find(h => h.sessionId === session.id && h.detailedSnapshot?.session && Array.isArray(h.detailedSnapshot?.voters)) : undefined;
+  const closedReport = closedArchive ? archivedReport(closedArchive) : undefined;
+  const displayedSession = closedReport?.session ?? session;
+  const displayedVoters = closedReport?.voters ?? voters;
+  const stats = closedReport?.stats ?? calculateVoteStatistics(session, voters);
 
   // Vote handler
   const handleVote = async (voterId: string, vote: VoteChoice) => {
@@ -284,6 +285,7 @@ export default function App() {
    * garde un lien vivant.
    */
   const empreinteConvoques = seance ? seance.selectedAttendeeIds.slice().sort().join(',') : '';
+  const empreinteActifs = voters.filter(v => v.isActive).map(v => v.id).sort().join(',');
   /*
    * Un échec de chargement des QR codes ne doit pas être définitif. Avant, une
    * seule requête ratée — un serveur qui redémarre, une session reprise — les
@@ -291,9 +293,6 @@ export default function App() {
    * rien dire. On réessaie, et on garde trace de l'échec pour l'afficher.
    */
   const [liensIndisponibles, setLiensIndisponibles] = useState<boolean>(false);
-  const [relanceLiens, setRelanceLiens] = useState<number>(0);
-  const rechargerLiensVote = useCallback(() => setRelanceLiens(n => n + 1), []);
-
   useEffect(() => {
     if (!sessionOuverte || !seance || seance.closedAt) {
       setLiensVote({});
@@ -302,9 +301,22 @@ export default function App() {
     }
 
     let annule = false;
+    let enCours = false;
     let minuterie: ReturnType<typeof setTimeout> | null = null;
+    setLiensVote({});
 
+    const programmer = (delai: number, essai = 1) => {
+      if (minuterie) clearTimeout(minuterie);
+      minuterie = setTimeout(() => void charger(essai), Math.max(1000, Math.min(delai, 2147483647)));
+    };
     const charger = async (essai: number): Promise<void> => {
+      if (annule || enCours) return;
+      enCours = true;
+      // Ne pas continuer à proposer un ancien QR pendant son renouvellement.
+      setLiensVote(anciens => Object.keys(anciens).reduce<Record<string, LienVote>>((valides, id) => {
+        if (Date.parse(anciens[id].expireLe) > Date.now()) valides[id] = anciens[id];
+        return valides;
+      }, {}));
       try {
         const res = await api.getLiensVote(seance.resolutionCouranteId || seance.id);
         if (annule) return;
@@ -312,33 +324,101 @@ export default function App() {
         (res.liens || []).forEach(lien => { parVotant[lien.voterId] = lien; });
         setLiensVote(parVotant);
         setLiensIndisponibles(false);
+        const echeances = (res.liens || []).map(l => Date.parse(l.expireLe)).filter(Number.isFinite);
+        if (echeances.length) programmer(Math.min(...echeances) - Date.now() - 5 * 60 * 1000);
       } catch (err) {
         if (annule) return;
         if (err instanceof SessionExpiree) {
-          // La session a pu être reprise entre-temps : on retente une fois.
           const repris = await auth.estConnecte().catch(() => false);
           if (!annule && repris && essai < 3) {
-            minuterie = setTimeout(() => void charger(essai + 1), 500);
+            programmer(1000, essai + 1);
             return;
           }
         }
+        if (annule) return;
         if (essai < 3) {
-          minuterie = setTimeout(() => void charger(essai + 1), 1500 * essai);
+          programmer(1500 * essai, essai + 1);
           return;
         }
-        // Sans QR codes, la séance reste pilotable depuis la table : on ne bloque
-        // rien, mais on cesse de faire croire qu'ils n'existent pas.
         setLiensVote({});
         setLiensIndisponibles(true);
-      }
+        programmer(30000);
+      } finally { enCours = false; }
     };
-
+    const reprendre = () => { if (document.visibilityState === 'visible') void charger(1); };
+    document.addEventListener('visibilitychange', reprendre);
+    window.addEventListener('online', reprendre);
     void charger(1);
     return () => {
       annule = true;
       if (minuterie) clearTimeout(minuterie);
+      document.removeEventListener('visibilitychange', reprendre);
+      window.removeEventListener('online', reprendre);
     };
-  }, [sessionOuverte, seance?.id, seance?.closedAt, seance?.resolutionCouranteId, empreinteConvoques, relance, relanceLiens]);
+  }, [sessionOuverte, seance?.id, seance?.closedAt, seance?.resolutionCouranteId, empreinteConvoques, empreinteActifs, relance, relanceLiens]);
+
+  /*
+   * La page mobile émet un battement toutes les cinq secondes. Ce contrôle léger
+   * met à jour les fonds vert/rouge des sièges sans régénérer les QR codes.
+   */
+  useEffect(() => {
+    if (!sessionOuverte || !seance || seance.closedAt) return;
+    let annule = false;
+    const chargerEtats = async () => {
+      try {
+        const { etats } = await api.getEtatsLiensVote(seance.resolutionCouranteId || seance.id);
+        if (annule) return;
+        const parVotant = new Map(etats.map(etat => [etat.voterId, etat] as const));
+        setLiensVote(anciens => {
+          const suivants: Record<string, LienVote> = {};
+          Object.keys(anciens).forEach(voterId => {
+            const etat = parVotant.get(voterId);
+            suivants[voterId] = {
+              ...anciens[voterId],
+              etatBulletin: etat?.etatBulletin || 'attente',
+              dernierAccesLe: etat?.dernierAccesLe || null,
+              erreurBulletin: etat?.erreurBulletin || null,
+              verrouille: etat?.verrouille ?? false,
+              verrouilleLe: etat?.verrouilleLe || null,
+            };
+          });
+          return suivants;
+        });
+      } catch (_) {
+        // Le chargement principal des QR possède sa propre reprise et son message.
+      }
+    };
+    void chargerEtats();
+    const minuterie = setInterval(() => void chargerEtats(), 2500);
+    return () => { annule = true; clearInterval(minuterie); };
+  }, [sessionOuverte, seance?.id, seance?.closedAt, seance?.resolutionCouranteId]);
+
+  const handleDeverrouillerLien = useCallback(async (voterId: string) => {
+    if (!seance || !window.confirm(
+      "Libérer ce bulletin ? Fermez d'abord l'ancienne page : le premier téléphone qui relira ce QR le récupérera."
+    )) return;
+    try {
+      const etat = await api.deverrouillerLienVote(seance.resolutionCouranteId || seance.id, voterId);
+      setLiensVote(anciens => ({
+        ...anciens,
+        [voterId]: { ...anciens[voterId], ...etat },
+      }));
+    } catch (err: any) {
+      alert(err?.message || 'Impossible de débloquer ce bulletin.');
+    }
+  }, [seance]);
+
+  const handleRenouvelerLien = useCallback(async (voterId: string) => {
+    if (!seance || !window.confirm(
+      "Révoquer définitivement l'ancien lien et générer un nouveau QR code ?"
+    )) return;
+    try {
+      const lien = await api.renouvelerLienVote(seance.resolutionCouranteId || seance.id, voterId);
+      setLiensVote(anciens => ({ ...anciens, [voterId]: lien }));
+    } catch (err: any) {
+      alert(err?.message || 'Impossible de générer un nouveau bulletin.');
+    }
+  }, [seance]);
 
   // Reset votes
   // Ouvre ou suspend le scrutin. Sans effacer aucun suffrage : c'est le sens même
@@ -374,10 +454,10 @@ export default function App() {
   const handleQuickVoteAllFor = async () => {
     if (!session) return;
     try {
-      const activeVoters = voters.filter(v => v.isActive);
+      const activeVoters = sessionVoters(session, voters);
       for (const v of activeVoters) {
         const curPresence = session.voterStates[v.id]?.presence || 'present';
-        if (curPresence === 'present' || curPresence === 'proxy') {
+        if (curPresence === 'present') {
           await api.castVote(session.id, v.id, 'for');
         }
       }
@@ -391,11 +471,11 @@ export default function App() {
   const handleSimulateRandomVotes = async () => {
     if (!session) return;
     try {
-      const activeVoters = voters.filter(v => v.isActive);
+      const activeVoters = sessionVoters(session, voters);
       const choices: VoteChoice[] = ['for', 'for', 'for', 'for', 'against', 'abstain'];
       for (const v of activeVoters) {
         const curPresence = session.voterStates[v.id]?.presence || 'present';
-        if (curPresence === 'present' || curPresence === 'proxy') {
+        if (curPresence === 'present') {
           const randomChoice = choices[Math.floor(Math.random() * choices.length)];
           await api.castVote(session.id, v.id, randomChoice);
         }
@@ -705,8 +785,8 @@ export default function App() {
     return (
       <>
         <VoterFullPageView
-          session={session}
-          voters={voters}
+          session={displayedSession}
+          voters={displayedVoters}
           activeVoterId={selectedVoterId || voters[0]?.id || ''}
           onVote={handleVote}
           onSetPresence={handleSetPresence}
@@ -794,6 +874,7 @@ export default function App() {
       <main className={`flex-1 ${isFullscreenTable && currentTab === 'table' ? 'pb-2' : 'pb-12'}`}>
         {currentTab === 'table' && (
           <OvalTable
+            history={history}
             session={session}
             voters={voters}
             stats={stats}
@@ -806,6 +887,8 @@ export default function App() {
             liensVote={liensVote}
             liensIndisponibles={liensIndisponibles}
             onRechargerLiens={rechargerLiensVote}
+            onDeverrouillerLien={handleDeverrouillerLien}
+            onRenouvelerLien={handleRenouvelerLien}
             seance={seance}
             onSwitchResolution={handleSwitchResolution}
             onAjouterResolution={() => setIsAjoutResolutionOpen(true)}
@@ -818,10 +901,10 @@ export default function App() {
 
         {currentTab === 'kiosk' && (
           <KioskView
-            session={session}
-            voters={voters}
+            session={displayedSession}
+            voters={displayedVoters}
             onVote={handleVote}
-            onSetPresence={(voterId, presence) => handleSetPresence(voterId, presence)}
+            onSetPresence={handleSetPresence}
             onNavigateToTable={() => setCurrentTab('table')}
             onChangeVoter={() => setIsModeModalOpen(true)}
           />

@@ -6,7 +6,7 @@ interface KioskViewProps {
   session: VotingSession | null;
   voters: Voter[];
   onVote: (voterId: string, vote: VoteChoice) => void;
-  onSetPresence: (voterId: string, presence: PresenceStatus) => void;
+  onSetPresence: (voterId: string, presence: PresenceStatus, proxyToId?: string | null) => void;
   onNavigateToTable: () => void;
   onChangeVoter?: () => void;
 }

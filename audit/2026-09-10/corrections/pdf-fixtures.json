@@ -1,0 +1,318 @@
+[
+  {
+    "session": {
+      "id": "audit_27",
+      "seanceId": "seance_audit_27",
+      "ordre": 1,
+      "referenceCode": "AUDIT-ARCHIVE",
+      "title": "Audit — Approbation du budget",
+      "motionText": "Le conseil approuve le budget soumis au vote.",
+      "scheduledDate": "2026-09-10",
+      "scheduledTime": "14:30",
+      "location": "Salle du conseil",
+      "status": "closed",
+      "majorityRequired": "simple",
+      "quorumPct": 50,
+      "isSecret": false,
+      "outcome": "adopted",
+      "createdAt": "2026-09-10T04:18:01.491Z",
+      "closedAt": "2026-09-10T04:18:01.971Z",
+      "voterStates": {
+        "audit_a": {
+          "voterId": "audit_a",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "for",
+          "votedAt": "2026-09-10T04:18:01.839Z",
+          "note": null
+        },
+        "audit_b": {
+          "voterId": "audit_b",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "for",
+          "votedAt": "2026-09-10T04:18:01.887Z",
+          "note": null
+        },
+        "audit_c": {
+          "voterId": "audit_c",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "against",
+          "votedAt": "2026-09-10T04:18:01.929Z",
+          "note": null
+        },
+        "audit_d": {
+          "voterId": "audit_d",
+          "presence": "absent",
+          "proxyToId": null,
+          "vote": "pending",
+          "votedAt": null,
+          "note": null
+        }
+      },
+      "selectedAttendeeIds": [
+        "audit_a",
+        "audit_b",
+        "audit_c",
+        "audit_d"
+      ]
+    },
+    "voters": [
+      {
+        "id": "audit_a",
+        "name": "Nom modifié pour audit",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 1
+      },
+      {
+        "id": "audit_b",
+        "name": "Membre fictif B",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 2
+      },
+      {
+        "id": "audit_c",
+        "name": "Membre fictif C",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 3
+      },
+      {
+        "id": "audit_d",
+        "name": "Membre fictif D",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 4
+      },
+      {
+        "id": "audit_e",
+        "name": "Membre fictif E",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 5
+      },
+      {
+        "id": "audit_f",
+        "name": "Membre fictif F",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 6
+      }
+    ],
+    "stats": {
+      "totalEligible": 4,
+      "presentCount": 3,
+      "absentCount": 1,
+      "proxyCount": 0,
+      "excusedCount": 0,
+      "quorumNeeded": 2,
+      "quorumReached": true,
+      "votesFor": 2,
+      "votesAgainst": 1,
+      "votesAbstain": 0,
+      "votesPending": 0,
+      "totalExpressed": 3,
+      "forPercentage": 67,
+      "againstPercentage": 33,
+      "abstainPercentage": 0,
+      "majorityRequired": "simple",
+      "outcome": "adopted",
+      "votedCount": 3,
+      "notVotedCount": 0,
+      "votesSecrets": 0,
+      "abstentionsAssimilees": 0,
+      "resultatFinalise": true
+    }
+  },
+  {
+    "session": {
+      "id": "audit_27",
+      "seanceId": "seance_audit_27",
+      "ordre": 1,
+      "referenceCode": "AUDIT-TEXTE-LONG",
+      "title": "Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération Intitulé long de délibération ",
+      "motionText": "Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. Paragraphe de contrôle de pagination : cette phrase doit rester entièrement lisible dans le procès-verbal. ",
+      "scheduledDate": "2026-09-10",
+      "scheduledTime": "14:30",
+      "location": "Salle du conseil",
+      "status": "closed",
+      "majorityRequired": "simple",
+      "quorumPct": 50,
+      "isSecret": false,
+      "outcome": "adopted",
+      "createdAt": "2026-09-10T04:18:01.491Z",
+      "closedAt": "2026-09-10T04:18:01.971Z",
+      "voterStates": {
+        "audit_a": {
+          "voterId": "audit_a",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "for",
+          "votedAt": "2026-09-10T04:18:01.839Z",
+          "note": null
+        },
+        "audit_b": {
+          "voterId": "audit_b",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "for",
+          "votedAt": "2026-09-10T04:18:01.887Z",
+          "note": null
+        },
+        "audit_c": {
+          "voterId": "audit_c",
+          "presence": "present",
+          "proxyToId": null,
+          "vote": "against",
+          "votedAt": "2026-09-10T04:18:01.929Z",
+          "note": null
+        },
+        "audit_d": {
+          "voterId": "audit_d",
+          "presence": "absent",
+          "proxyToId": null,
+          "vote": "pending",
+          "votedAt": null,
+          "note": null
+        }
+      },
+      "selectedAttendeeIds": [
+        "audit_a",
+        "audit_b",
+        "audit_c",
+        "audit_d"
+      ]
+    },
+    "voters": [
+      {
+        "id": "audit_a",
+        "name": "Nom modifié pour audit",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 1
+      },
+      {
+        "id": "audit_b",
+        "name": "Membre fictif B",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 2
+      },
+      {
+        "id": "audit_c",
+        "name": "Membre fictif C",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 3
+      },
+      {
+        "id": "audit_d",
+        "name": "Membre fictif D",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 4
+      },
+      {
+        "id": "audit_e",
+        "name": "Membre fictif E",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 5
+      },
+      {
+        "id": "audit_f",
+        "name": "Membre fictif F",
+        "title": "Mme",
+        "specialty": "Collège audit",
+        "department": "Audit",
+        "email": "",
+        "weight": 1,
+        "avatarColor": "#0284c7",
+        "isActive": true,
+        "seatNumber": 6
+      }
+    ],
+    "stats": {
+      "totalEligible": 4,
+      "presentCount": 3,
+      "absentCount": 1,
+      "proxyCount": 0,
+      "excusedCount": 0,
+      "quorumNeeded": 2,
+      "quorumReached": true,
+      "votesFor": 2,
+      "votesAgainst": 1,
+      "votesAbstain": 0,
+      "votesPending": 0,
+      "totalExpressed": 3,
+      "forPercentage": 67,
+      "againstPercentage": 33,
+      "abstainPercentage": 0,
+      "majorityRequired": "simple",
+      "outcome": "adopted",
+      "votedCount": 3,
+      "notVotedCount": 0,
+      "votesSecrets": 0,
+      "abstentionsAssimilees": 0,
+      "resultatFinalise": true
+    }
+  }
+]

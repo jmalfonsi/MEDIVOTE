@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Le QR affiché se renouvelle à son échéance sans changer de point",
+    "status": "ECHEC",
+    "error": "Une seule lecture des liens : 1"
+  },
+  {
+    "name": "Une erreur temporaire du réseau mobile ne bloque pas définitivement le lien",
+    "status": "OK"
+  },
+  {
+    "name": "Un lien expiré demande un nouveau scan et permet une nouvelle vérification",
+    "status": "ECHEC",
+    "error": "locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Réessayer', exact: true }) to be visible\u001b[22m\n"
+  }
+]

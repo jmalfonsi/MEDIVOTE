@@ -23,6 +23,8 @@ import {
 import { SessionHistoryItem, MajorityType, VotingSession, Voter } from '../types';
 import { getMajorityLabel } from '../utils/votingMath';
 import { generateSessionPdfReport } from '../utils/pdfExport';
+import { archivedReport } from '../utils/historySnapshot';
+import { historyCsv } from '../utils/csvExport';
 
 interface HistoryPanelProps {
   history: SessionHistoryItem[];
@@ -54,76 +56,20 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
   };
 
   const handleExportPDF = (item: SessionHistoryItem) => {
-    // Construct session representation
-    const sessionVoters: Voter[] = item.detailedSnapshot?.voters || [];
-    const dummyStates: Record<string, { voterId: string; presence: any; vote: any; proxyToId?: string | null }> = {};
-    
-    if (item.detailedSnapshot?.voterStates) {
-      item.detailedSnapshot.voterStates.forEach(vs => {
-        dummyStates[vs.voterId] = {
-          voterId: vs.voterId,
-          presence: vs.presence as any,
-          vote: vs.vote as any,
-          proxyToId: vs.proxyToId
-        };
-      });
-    }
-
-    const sessionObj: VotingSession = {
-      id: item.id,
-      seanceId: item.detailedSnapshot?.session?.seanceId || '',
-      ordre: item.detailedSnapshot?.session?.ordre || 1,
-      referenceCode: item.referenceCode,
-      title: item.title,
-      motionText: item.motionText,
-      scheduledDate: item.scheduledDate,
-      scheduledTime: item.scheduledTime,
-      location: item.location || 'Conseil Médical',
-      status: 'closed',
-      majorityRequired: item.majorityRequired,
-      quorumPct: item.quorumPct,
-      isSecret: false,
-      outcome: item.outcome as any,
-      createdAt: item.closedAt,
-      voterStates: dummyStates,
-      // Le collège convoqué ce jour-là, et non l'annuaire entier : le procès-verbal
-      // ne doit faire figurer que les membres appelés à siéger.
-      selectedAttendeeIds:
-        item.detailedSnapshot?.session?.selectedAttendeeIds?.length
-          ? item.detailedSnapshot.session.selectedAttendeeIds
-          : sessionVoters.map(v => v.id)
-    };
-
-    // Le décompte arrêté par le serveur à la clôture fait foi ; on ne le recalcule pas.
-    generateSessionPdfReport(sessionObj, sessionVoters, item.detailedSnapshot?.stats);
+    try {
+      const { session, voters, stats } = archivedReport(item);
+      generateSessionPdfReport(session, voters, stats);
+    } catch (error) { alert((error as Error).message); }
   };
 
   const handleExportCSV = () => {
-    if (!history.length) return;
-    const headers = ['ID', 'Reference', 'Titre', 'Date', 'Heure', 'Eligibles', 'Presents', 'Pour', 'Contre', 'Abstention', 'Resultat', 'Regle'];
-    const rows = history.map(h => [
-      h.id,
-      `"${h.referenceCode}"`,
-      `"${h.title.replace(/"/g, '""')}"`,
-      h.scheduledDate,
-      h.scheduledTime,
-      h.totalEligible,
-      h.totalPresent,
-      h.votesFor,
-      h.votesAgainst,
-      h.votesAbstain,
-      h.outcome,
-      h.majorityRequired
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    if (!filteredHistory.length) return;
+    const url = URL.createObjectURL(new Blob([historyCsv(filteredHistory)], {type: 'text/csv;charset=utf-8;'}));
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `medivote_registre_sqlite_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `medivote_registre_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -150,7 +96,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportCSV}
-            disabled={!history.length}
+            disabled={!filteredHistory.length}
             className="px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5 border border-slate-200 disabled:opacity-40"
           >
             <Download className="w-4 h-4 text-emerald-600" />
@@ -317,7 +263,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
 
       {/* DETAIL MODAL / PROCÈS-VERBAL OFFICIEL */}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
+        <div id="medivote-print-root" className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-3xl w-full shadow-xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
             
             {/* Modal Header */}
@@ -368,8 +314,8 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                 <span className="font-semibold text-slate-800">{selectedItem.location || 'Conseil Médical'}</span>
               </div>
               <div>
-                <span className="text-slate-500 block">Quorum Constaté</span>
-                <span className="font-semibold text-emerald-700">{selectedItem.totalPresent}/{selectedItem.totalEligible} ({selectedItem.quorumPct}%)</span>
+                <span className="text-slate-500 block">Présence / quorum requis</span>
+                <span className="font-semibold text-emerald-700">{selectedItem.totalPresent}/{selectedItem.totalEligible} — requis : {selectedItem.quorumPct} %</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Règle de Vote</span>
@@ -400,7 +346,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                     ? 'bg-rose-50 text-rose-800 border-rose-200'
                     : 'bg-amber-50 text-amber-800 border-amber-200'
                 }`}>
-                  {selectedItem.outcome === 'adopted' ? 'RÉSOLUTION ADOPTÉE' : selectedItem.outcome === 'rejected' ? 'RÉSOLUTION REJETÉE' : 'QUORUM NON ATTEINT'}
+                  {selectedItem.outcome === 'adopted' ? 'RÉSOLUTION ADOPTÉE' : selectedItem.outcome === 'rejected' ? 'RÉSOLUTION REJETÉE' : selectedItem.outcome === 'quorum_not_reached' ? 'QUORUM NON ATTEINT' : 'AUCUN SUFFRAGE EXPRIMÉ'}
                 </span>
               </div>
 
@@ -427,20 +373,20 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                   Émargement des Délibérateurs Autour de la Table
                 </h4>
                 <div className="max-h-48 overflow-y-auto rounded-2xl bg-slate-50 border border-slate-200 p-2 divide-y divide-slate-200/60 text-xs">
-                  {selectedItem.detailedSnapshot.voters.map((v) => {
+                  {(selectedItem.detailedSnapshot.voters.filter(v => v.isActive && (selectedItem.detailedSnapshot.session?.selectedAttendeeIds ?? selectedItem.detailedSnapshot.voters.map(v => v.id)).includes(v.id))).map((v) => {
                     const st = selectedItem.detailedSnapshot.voterStates?.find(s => s.voterId === v.id);
                     return (
                       <div key={v.id} className="py-2 px-3 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-slate-800">{v.title} {v.name}</span>
-                          <span className="text-[0.6875rem] text-slate-500">({v.specialty})</span>
+                          {v.specialty && <span className="text-[0.6875rem] text-slate-500">({v.specialty})</span>}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-0.5 rounded text-[0.625rem] font-semibold ${
                             st?.presence === 'present' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
                             st?.presence === 'proxy' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-500'
                           }`}>
-                            {st?.presence === 'present' ? 'Présent' : st?.presence === 'proxy' ? 'Procuration' : 'Absent'}
+                            {st?.presence === 'present' ? 'Présent' : st?.presence === 'proxy' ? 'Procuration' : st?.presence === 'excused' ? 'Excusé' : 'Absent'}
                           </span>
 
                           <span className={`px-2 py-0.5 rounded text-[0.625rem] font-bold ${
@@ -461,7 +407,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
             {/* Footer buttons */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
               <div className="text-[0.6875rem] text-slate-500 font-mono">
-                Archivé le {new Date(selectedItem.closedAt).toLocaleString('fr-FR')} • Certifié SQLite
+                Archivé le {new Date(selectedItem.closedAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })} (heure de Paris) • Résultat archivé
               </div>
               <button
                 onClick={() => setSelectedItem(null)}

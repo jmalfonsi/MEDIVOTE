@@ -53,6 +53,7 @@ describe('quorum (D2)', () => {
       [['a', 'present', 'for'], ['b', 'proxy', 'for'], ['c', 'absent', 'pending'], ['d', 'absent', 'pending']],
       { quorumPct: 50 }
     );
+    session.voterStates.b.proxyToId = 'a';
     const s = calculateVoteStatistics(session, voters);
     expect(s.quorumNeeded).toBe(2);
     expect(s.quorumReached).toBe(true);

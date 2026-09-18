@@ -40,23 +40,12 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
     }
   };
 
-  const handleDigitClick = (digit: string) => {
-    if (pin.length < 6 && !verification) {
-      const nextPin = pin + digit;
-      setPin(nextPin);
-      setError(null);
-      if (nextPin.length === 6) void soumettreCode(nextPin);
-    }
-  };
-
-  const handleBackspace = () => {
-    setPin(prev => prev.slice(0, -1));
+  const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (verification) return;
+    const nextPin = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setPin(nextPin);
     setError(null);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void soumettreCode(pin.trim());
+    if (nextPin.length === 6) void soumettreCode(nextPin);
   };
 
   return (
@@ -85,20 +74,38 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
             Conseil d'Administration · SSTI 03
           </p>
           <p className="text-xs text-slate-500 mt-1.5">
-            Entrez le code administrateur pour ouvrir la table de vote.
+            Tapez le code administrateur au clavier pour ouvrir la table de vote.
           </p>
           <p className="text-[0.6875rem] text-slate-400 mt-1.5">
             Ce poste restera reconnu sept jours : le code ne vous sera pas redemandé.
           </p>
         </div>
 
-        {/* PIN boxes */}
-        <div className="flex items-center justify-center gap-2">
+        {/* Le champ couvre les témoins mais reste invisible : aucune touche du
+            code n'est affichée, même brièvement par le navigateur. */}
+        <label className="relative flex items-center justify-center gap-2 rounded-2xl focus-within:ring-2 focus-within:ring-emerald-500/30">
+          <span className="sr-only">Code administrateur à six chiffres</span>
+          <input
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={6}
+            autoComplete="off"
+            autoFocus
+            value={pin}
+            onChange={handlePinChange}
+            onPaste={e => e.preventDefault()}
+            onDrop={e => e.preventDefault()}
+            disabled={verification}
+            aria-label="Code administrateur à six chiffres"
+            className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
+          />
           {[0, 1, 2, 3, 4, 5].map((idx) => {
             const isFilled = pin.length > idx;
             return (
-              <div
+              <span
                 key={idx}
+                aria-hidden="true"
                 className={`w-9 h-11 rounded-xl border flex items-center justify-center text-base font-bold font-mono transition-all ${
                   isFilled
                     ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20'
@@ -106,10 +113,10 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
                 } ${error ? 'border-rose-400 bg-rose-50 text-rose-800' : ''}`}
               >
                 {isFilled ? '•' : ''}
-              </div>
+              </span>
             );
           })}
-        </div>
+        </label>
 
         {error && (
           <div className="text-xs font-semibold text-rose-600 flex items-center justify-center gap-1.5 animate-in fade-in">
@@ -118,42 +125,9 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
           </div>
         )}
 
-        {/* Keypad */}
-        <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => {
-                if (k === 'C') {
-                  setPin('');
-                  setError(null);
-                } else if (k === '⌫') {
-                  handleBackspace();
-                } else {
-                  handleDigitClick(k);
-                }
-              }}
-              className={`h-11 rounded-xl font-bold text-sm transition flex items-center justify-center ${
-                k === 'C' || k === '⌫'
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                  : 'bg-white hover:bg-emerald-50 border border-slate-200 text-slate-800 hover:border-emerald-300 shadow-2xs'
-              }`}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <button
-            type="submit"
-            disabled={pin.length !== 6 || verification}
-            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs transition shadow-xs"
-          >
-            {verification ? 'Vérification…' : 'Déverrouiller'}
-          </button>
-        </form>
+        <p className="text-xs font-semibold text-slate-500">
+          {verification ? 'Vérification…' : 'Validation automatique après 6 chiffres · collage désactivé'}
+        </p>
 
       </div>
     </div>

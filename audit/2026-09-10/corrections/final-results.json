@@ -1,0 +1,26 @@
+[
+  {
+    "id": "PDF depuis la table figé malgré une modification du répertoire",
+    "status": "OK"
+  },
+  {
+    "id": "Édition du point non affiché conserve ses seuls convoqués",
+    "status": "OK"
+  },
+  {
+    "id": "Simulation : un mandant suit son mandataire et les non-convoqués restent exclus",
+    "status": "OK"
+  },
+  {
+    "id": "Téléphone : poids personnel et mandat affichent quatre voix",
+    "status": "OK"
+  },
+  {
+    "id": "PDF final : tous les témoins sont régénérés avec la pagination corrigée",
+    "status": "OK"
+  },
+  {
+    "id": "Impression isolée même lorsqu’une notification est visible",
+    "status": "OK"
+  }
+]

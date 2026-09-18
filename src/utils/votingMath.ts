@@ -1,5 +1,23 @@
 import { VotingSession, Voter, VoteStatistics, SessionOutcome } from '../types';
 
+/** Le collège explicitement vide reste vide ; seuls les membres actifs votent. */
+export function sessionVoters(session: VotingSession, voters: Voter[]): Voter[] {
+  const ids = session.selectedAttendeeIds ?? voters.map(v => v.id);
+  return voters.filter(v => v.isActive && ids.includes(v.id));
+}
+
+/** Même interprétation de l'émargement pour les compteurs et les documents. */
+export function effectiveState(session: VotingSession, voterId: string, voters: Voter[]) {
+  const state = session.voterStates[voterId] ?? { voterId, presence: 'present' as const, vote: 'pending' as const };
+  if (state.presence !== 'proxy') return state;
+  const recipient = sessionVoters(session, voters).find(v => v.id === state.proxyToId && v.id !== voterId);
+  const target = recipient && session.voterStates[recipient.id];
+  if (!recipient || (target?.presence ?? 'present') !== 'present') {
+    return { ...state, presence: 'absent' as const, vote: 'pending' as const, proxyToId: null };
+  }
+  return state;
+}
+
 /**
  * Règles de scrutin retenues pour cet organisme (arbitrées le 31/08/2026) :
  *  - D1 : les abstentions ENTRENT dans les suffrages exprimés. En majorité absolue
@@ -45,11 +63,7 @@ export function calculateVoteStatistics(
   }
 
   // Filter voters exclusively to the meeting's selected list attendees
-  const attendeeIds = session.selectedAttendeeIds && session.selectedAttendeeIds.length > 0
-    ? session.selectedAttendeeIds
-    : voters.map(v => v.id);
-
-  const activeVoters = voters.filter(v => v.isActive && attendeeIds.includes(v.id));
+  const activeVoters = sessionVoters(session, voters);
   const totalEligible = activeVoters.length;
 
   let presentCount = 0;
@@ -64,7 +78,7 @@ export function calculateVoteStatistics(
   let votesSecrets = 0;
 
   activeVoters.forEach(voter => {
-    const state = session.voterStates[voter.id] || { presence: 'present', vote: 'pending' };
+    const state = effectiveState(session, voter.id, voters);
     
     // Presence count
     switch (state.presence) {
@@ -86,7 +100,7 @@ export function calculateVoteStatistics(
     const canVote = state.presence === 'present' || state.presence === 'proxy';
 
     if (canVote) {
-      const weight = voter.weight || 1;
+      const weight = voter.weight ?? 1;
       switch (state.vote) {
         case 'for':
           votesFor += weight;
@@ -134,7 +148,7 @@ export function calculateVoteStatistics(
     outcome = session.outcome;
   } else if (!quorumReached) {
     outcome = 'quorum_not_reached';
-  } else if ((finaliser || votesPending === 0) && totalExpressed > 0) {
+  } else if (votesSecrets === 0 && (finaliser || votesPending === 0) && totalExpressed > 0) {
     // Scrutin complet, ou clôture demandée : le sens du vote est déterminé
     switch (session.majorityRequired) {
       case 'simple':
@@ -157,13 +171,13 @@ export function calculateVoteStatistics(
   }
 
   const votedCount = activeVoters.filter(v => {
-    const s = session.voterStates[v.id];
+    const s = effectiveState(session, v.id, voters);
     const canVote = s?.presence === 'present' || s?.presence === 'proxy';
     return canVote && (s?.vote === 'for' || s?.vote === 'against' || s?.vote === 'abstain' || s?.vote === 'secret');
   }).length;
 
   const notVotedCount = activeVoters.filter(v => {
-    const s = session.voterStates[v.id];
+    const s = effectiveState(session, v.id, voters);
     const canVote = s?.presence === 'present' || s?.presence === 'proxy';
     return canVote && (!s?.vote || s?.vote === 'pending');
   }).length;
